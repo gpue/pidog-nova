@@ -20,6 +20,7 @@
         --border-subtle: rgba(255,255,255,0.1);
         --glass-bg: rgba(255,255,255,0.08);
         --glass-border: rgba(255,255,255,0.15);
+        --header-height: 56px;
       }
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
       body {
@@ -29,7 +30,33 @@
         -webkit-font-smoothing: antialiased;
         line-height: 1.5;
       }
-      .page { padding: 32px; display: flex; justify-content: center; }
+      /* Header */
+      .nova-header {
+        position: fixed; top: 0; left: 0; right: 0;
+        height: var(--header-height);
+        background: rgba(255,255,255,0.05);
+        backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+        border-bottom: 1px solid var(--border-subtle);
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 0 20px; z-index: 50; flex-shrink: 0;
+      }
+      .nova-header-left { display: flex; align-items: center; gap: 12px; }
+      .nova-logo {
+        width: 32px; height: 32px;
+        background: linear-gradient(135deg, var(--color-primary) 0%, var(--accent-green) 100%);
+        border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white;
+      }
+      .nova-logo svg { width: 16px; height: 16px; }
+      .nova-app-name { font-size: 1rem; font-weight: 600; }
+      .nova-nav { display: flex; align-items: center; gap: 4px; }
+      .nova-nav-link {
+        display: flex; align-items: center; gap: 6px;
+        padding: 6px 12px; border-radius: 8px; font-size: 0.875rem; font-weight: 500;
+        color: var(--text-secondary); text-decoration: none; transition: all 150ms ease;
+      }
+      .nova-nav-link:hover { color: var(--text-primary); background: rgba(255,255,255,0.1); }
+      .nova-nav-link svg { width: 16px; height: 16px; flex-shrink: 0; }
+      .page { padding: calc(var(--header-height) + 32px) 32px 32px; display: flex; justify-content: center; }
       .content { width: 100%; max-width: 560px; }
       .glass-card {
         background: var(--glass-bg);
@@ -81,21 +108,33 @@
         font-size: 0.8rem; color: var(--text-secondary);
       }
       .saved-info .label { color: var(--text-disabled); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 4px; }
-      .link-cards { display: flex; gap: 12px; margin-top: 24px; }
-      .link-card {
-        flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px;
-        padding: 20px 12px; border-radius: 12px; text-decoration: none;
-        background: var(--bg-paper-1); border: 1px solid var(--border-subtle);
-        color: var(--text-secondary); transition: all 150ms ease;
-      }
-      .link-card:hover {
-        border-color: var(--color-primary); color: var(--text-primary);
-        background: var(--bg-paper-2); transform: translateY(-2px);
-      }
-      .link-card-label { font-size: 0.8rem; font-weight: 500; }
     </style>
   </head>
   <body>
+    <header class="nova-header">
+      <div class="nova-header-left">
+        <div class="nova-logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7" rx="1"/>
+            <rect x="14" y="3" width="7" height="7" rx="1"/>
+            <rect x="3" y="14" width="7" height="7" rx="1"/>
+            <rect x="14" y="14" width="7" height="7" rx="1"/>
+          </svg>
+        </div>
+        <span class="nova-app-name">Pidog Nova</span>
+      </div>
+      <nav class="nova-nav">
+        <a id="nav-home" href="/" class="nova-nav-link" title="Back to Nova home">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7" rx="1"/>
+            <rect x="14" y="3" width="7" height="7" rx="1"/>
+            <rect x="3" y="14" width="7" height="7" rx="1"/>
+            <rect x="14" y="14" width="7" height="7" rx="1"/>
+          </svg>
+          Home
+        </a>
+      </nav>
+    </header>
     <div class="page">
       <div class="content">
         <div class="glass-card">
@@ -126,30 +165,13 @@
           </div>
         </div>
 
-        <div class="link-cards">
-          <a id="link-control" href="#" class="link-card">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/>
-            </svg>
-            <span class="link-card-label">Control Panel</span>
-          </a>
-          <a id="link-graphnav" href="#" class="link-card">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-            </svg>
-            <span class="link-card-label">GraphNav</span>
-          </a>
-        </div>
       </div>
     </div>
 
     <script>
-      const apiPrefix = (window.location.pathname.replace(/\/ui\/?$/, '') || '') + '/api';
-      const robotModel = 'pidog';
-      const robotId = 'pidog';
-
-      document.getElementById('link-control').href = `${apiPrefix}/${robotModel}/${robotId}/action/list`;
-      document.getElementById('link-graphnav').href = `${apiPrefix}/${robotModel}/${robotId}/graphnav/graphs`;
+      // Derive API base: /cell/pidog/api (handles /cell/pidog, /cell/pidog/, /cell/pidog/ui, /cell/pidog/api/ui)
+      const path = window.location.pathname.replace(/\/api\/ui\/?$|\/ui\/?$/, '').replace(/\/+$/, '') || '';
+      const apiPrefix = path + (path.endsWith('/api') ? '' : '/api');
 
       async function fetchConfig() {
         try {
