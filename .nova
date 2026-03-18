@@ -1,0 +1,9 @@
+# Pidog Nova — SunFounder Pidog gateway
+name: pidog-nova
+type: app
+port: 8000
+appIcon: app_icon.svg
+urlPath: /cell/pidog
+environment:
+  - name: BASE_PATH
+    value: /cell/pidog

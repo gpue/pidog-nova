@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pidog Nova Gateway</title>
+    <style>
+      :root {
+        --bg-default: #020617;
+        --bg-paper: #11131f;
+        --bg-paper-1: #141623;
+        --bg-paper-2: #171927;
+        --color-primary: #8E56FC;
+        --accent-green: #22d3ee;
+        --color-error: #EF5350;
+        --color-success: #26A69A;
+        --text-primary: #ffffff;
+        --text-secondary: rgba(255,255,255,0.7);
+        --text-disabled: rgba(255,255,255,0.4);
+        --border-subtle: rgba(255,255,255,0.1);
+        --glass-bg: rgba(255,255,255,0.08);
+        --glass-border: rgba(255,255,255,0.15);
+      }
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        font-family: "Inter", system-ui, -apple-system, sans-serif;
+        background-color: var(--bg-default);
+        color: var(--text-primary);
+        -webkit-font-smoothing: antialiased;
+        line-height: 1.5;
+      }
+      .page { padding: 32px; display: flex; justify-content: center; }
+      .content { width: 100%; max-width: 560px; }
+      .glass-card {
+        background: var(--glass-bg);
+        border: 1px solid var(--glass-border);
+        border-radius: 16px;
+        padding: 28px;
+        backdrop-filter: blur(12px);
+      }
+      .glass-card h2 { font-size: 1.25rem; font-weight: 600; margin-bottom: 20px; }
+      .form-group { margin-bottom: 16px; }
+      .form-group label {
+        display: block; font-size: 0.8rem; font-weight: 500;
+        color: var(--text-secondary); margin-bottom: 6px;
+      }
+      .form-group input {
+        width: 100%; padding: 10px 14px; font-size: 0.9rem;
+        background: var(--bg-paper-1); border: 1px solid var(--border-subtle);
+        border-radius: 8px; color: var(--text-primary); outline: none;
+      }
+      .form-group input:focus { border-color: var(--color-primary); }
+      .form-row { display: flex; gap: 12px; }
+      .form-row .form-group { flex: 1; }
+      .btn {
+        display: inline-flex; align-items: center; justify-content: center;
+        padding: 10px 20px; border-radius: 8px; font-size: 0.875rem; font-weight: 600;
+        border: none; cursor: pointer; transition: all 150ms ease;
+      }
+      .btn-primary {
+        background: linear-gradient(135deg, var(--color-primary) 0%, #a855f7 100%);
+        color: white;
+      }
+      .btn-primary:hover { opacity: 0.9; }
+      .btn-block { width: 100%; margin-top: 8px; }
+      .conn-status {
+        margin-top: 16px; display: flex; align-items: center; gap: 8px;
+        font-size: 0.875rem; color: var(--text-secondary);
+      }
+      .conn-dot {
+        width: 10px; height: 10px; border-radius: 50%;
+        background: var(--text-disabled);
+      }
+      .conn-dot.connected { background: var(--color-success); }
+      .conn-dot.disconnected { background: var(--color-error); }
+      .conn-dot.connecting { background: var(--accent-green); animation: pulse 1s infinite; }
+      @keyframes pulse { 50% { opacity: 0.5; } }
+      .saved-info {
+        margin-top: 20px; padding: 14px 16px; border-radius: 10px;
+        background: var(--bg-paper-2); border: 1px solid var(--border-subtle);
+        font-size: 0.8rem; color: var(--text-secondary);
+      }
+      .saved-info .label { color: var(--text-disabled); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 4px; }
+      .link-cards { display: flex; gap: 12px; margin-top: 24px; }
+      .link-card {
+        flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px;
+        padding: 20px 12px; border-radius: 12px; text-decoration: none;
+        background: var(--bg-paper-1); border: 1px solid var(--border-subtle);
+        color: var(--text-secondary); transition: all 150ms ease;
+      }
+      .link-card:hover {
+        border-color: var(--color-primary); color: var(--text-primary);
+        background: var(--bg-paper-2); transform: translateY(-2px);
+      }
+      .link-card-label { font-size: 0.8rem; font-weight: 500; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="content">
+        <div class="glass-card">
+          <h2>Pidog Connection</h2>
+          <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 16px;">
+            Enter the IP address of your Pidog robot (running controller-control with API server).
+          </p>
+          <div class="form-row">
+            <div class="form-group" style="flex: 2;">
+              <label>Pidog IP</label>
+              <input type="text" id="pidog-ip" placeholder="e.g. 192.168.1.100" />
+            </div>
+            <div class="form-group">
+              <label>Port</label>
+              <input type="text" id="pidog-port" value="8000" placeholder="8000" />
+            </div>
+          </div>
+          <button class="btn btn-primary btn-block" id="save-btn">Save Connection</button>
+
+          <div class="conn-status" id="conn-status">
+            <span class="conn-dot disconnected" id="conn-dot"></span>
+            <span id="conn-msg">Not configured</span>
+          </div>
+
+          <div class="saved-info" id="saved-info" style="display:none;">
+            <div class="label">Current saved connection</div>
+            <div class="value" id="saved-display"></div>
+          </div>
+        </div>
+
+        <div class="link-cards">
+          <a id="link-control" href="#" class="link-card">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/>
+            </svg>
+            <span class="link-card-label">Control Panel</span>
+          </a>
+          <a id="link-graphnav" href="#" class="link-card">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+            </svg>
+            <span class="link-card-label">GraphNav</span>
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const apiPrefix = (window.location.pathname.replace(/\/ui\/?$/, '') || '') + '/api';
+      const robotModel = 'pidog';
+      const robotId = 'pidog';
+
+      document.getElementById('link-control').href = `${apiPrefix}/${robotModel}/${robotId}/action/list`;
+      document.getElementById('link-graphnav').href = `${apiPrefix}/${robotModel}/${robotId}/graphnav/graphs`;
+
+      async function fetchConfig() {
+        try {
+          const r = await fetch(`${apiPrefix}/config`);
+          if (r.ok) return await r.json();
+        } catch (_) {}
+        return null;
+      }
+
+      function setConnStatus(klass, msg) {
+        const dot = document.getElementById('conn-dot');
+        const msgEl = document.getElementById('conn-msg');
+        dot.className = 'conn-dot ' + klass;
+        msgEl.textContent = msg;
+      }
+
+      async function updateConnectionStatus() {
+        const cfg = await fetchConfig();
+        if (!cfg) {
+          setConnStatus('disconnected', 'Gateway unreachable');
+          return;
+        }
+        if (cfg.pidog_ip) {
+          document.getElementById('pidog-ip').value = cfg.pidog_ip;
+          document.getElementById('pidog-port').value = cfg.pidog_port || 8000;
+          const savedInfo = document.getElementById('saved-info');
+          const savedDisplay = document.getElementById('saved-display');
+          savedInfo.style.display = '';
+          savedDisplay.textContent = `http://${cfg.pidog_ip}:${cfg.pidog_port || 8000}`;
+        }
+        if (cfg.connected) {
+          setConnStatus('connected', 'Connected to Pidog');
+        } else if (cfg.pidog_ip) {
+          setConnStatus('disconnected', 'Pidog unreachable');
+        } else {
+          setConnStatus('disconnected', 'Not configured');
+        }
+      }
+
+      document.getElementById('save-btn').addEventListener('click', async () => {
+        const ip = document.getElementById('pidog-ip').value.trim();
+        const port = document.getElementById('pidog-port').value.trim() || '8000';
+        if (!ip) {
+          setConnStatus('disconnected', 'Enter Pidog IP address');
+          return;
+        }
+        setConnStatus('connecting', 'Saving & verifying...');
+        try {
+          const r = await fetch(`${apiPrefix}/config`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pidog_ip: ip, pidog_port: parseInt(port, 10) }),
+          });
+          if (!r.ok) {
+            const err = await r.text();
+            setConnStatus('error', 'Save failed: ' + err);
+            return;
+          }
+          await updateConnectionStatus();
+        } catch (err) {
+          setConnStatus('disconnected', 'Save failed: ' + (err.message || err));
+        }
+      });
+
+      updateConnectionStatus();
+    </script>
+  </body>
+</html>
