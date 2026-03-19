@@ -14,9 +14,9 @@ HEARTBEAT_INTERVAL_S = float(os.getenv("REGISTRY_HEARTBEAT_S", "15"))
 REGISTRY_KV_TTL_S = int(os.getenv("REGISTRY_KV_TTL_S", "60"))
 NATS_URL = os.getenv("NATS_BROKER") or os.getenv("NATS_URL") or "nats://localhost:4222"
 NATS_SUBJECT_PREFIX = os.getenv("NATS_SUBJECT_PREFIX", "rt.v1").strip(".")
-CONNECTOR_BASE_URL = os.getenv(
-    "CONNECTOR_BASE_URL", "http://localhost:8300"
-).rstrip("/")
+CONNECTOR_BASE_URL = os.getenv("CONNECTOR_BASE_URL", "http://localhost:8300").rstrip(
+    "/"
+)
 BASE_PATH = os.getenv("BASE_PATH", "").rstrip("/")
 API_PREFIX = f"{BASE_PATH}/api" if BASE_PATH else "/api"
 
@@ -33,6 +33,13 @@ def _normalize_base_path(raw: str) -> str:
 def _api_prefix_from_base_path(raw: str) -> str:
     base_path = _normalize_base_path(raw)
     return f"{base_path}/api" if base_path else "/api"
+
+
+def _browser_api_prefix_from_base_path(raw: str) -> str | None:
+    base_path = _normalize_base_path(raw)
+    if not base_path:
+        return None
+    return f"{base_path}/api"
 
 
 async def _ensure_kv_bucket(js: Any, bucket: str, description: str, ttl_s: int) -> Any:
@@ -55,7 +62,7 @@ async def _ensure_kv_bucket(js: Any, bucket: str, description: str, ttl_s: int) 
 def _build_robot_payload(robot_model: str, robot_id: str) -> dict[str, Any]:
     subj_base = f"{NATS_SUBJECT_PREFIX}.robot.{robot_model}.{robot_id}"
     api_prefix = _api_prefix_from_base_path(BASE_PATH)
-    return {
+    payload = {
         "id": robot_id,
         "endpoints": [
             f"{CONNECTOR_BASE_URL}{api_prefix}/{robot_model}/{robot_id}",
@@ -77,12 +84,16 @@ def _build_robot_payload(robot_model: str, robot_id: str) -> dict[str, Any]:
             ],
         },
     }
+    browser_api_prefix = _browser_api_prefix_from_base_path(BASE_PATH)
+    if browser_api_prefix:
+        payload["browser_endpoint"] = f"{browser_api_prefix}/{robot_model}/{robot_id}"
+    return payload
 
 
 def _build_camera_payload(
     robot_id: str, robot_type: str, feed_name: str, api_prefix: str
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "robot_id": robot_id,
         "robot_type": robot_type,
         "feed": feed_name,
@@ -91,6 +102,12 @@ def _build_camera_payload(
         ),
         "source": "pidog-nova",
     }
+    browser_api_prefix = _browser_api_prefix_from_base_path(BASE_PATH)
+    if browser_api_prefix:
+        payload["browser_stream_url"] = (
+            f"{browser_api_prefix}/camera/{robot_id}/{feed_name}/video_feed"
+        )
+    return payload
 
 
 class RegistryPublisher:
@@ -136,9 +153,7 @@ class RegistryPublisher:
             return False
         payload = _build_robot_payload(self._robot_model, self._robot_id)
         try:
-            await self._robot_kv.put(
-                self._robot_id, json.dumps(payload).encode()
-            )
+            await self._robot_kv.put(self._robot_id, json.dumps(payload).encode())
             self._registered = True
             return True
         except Exception:
