@@ -127,9 +127,13 @@ async def _proxy_request(
             if method == "GET":
                 r = await client.get(url)
             elif method == "POST":
-                r = await client.post(url, content=content or b"", headers=dict(request.headers))
+                r = await client.post(
+                    url, content=content or b"", headers=dict(request.headers)
+                )
             elif method == "PUT":
-                r = await client.put(url, content=content or b"", headers=dict(request.headers))
+                r = await client.put(
+                    url, content=content or b"", headers=dict(request.headers)
+                )
             else:
                 raise HTTPException(status_code=405, detail="Method not allowed")
     except httpx.ConnectError:
@@ -138,6 +142,46 @@ async def _proxy_request(
         raise HTTPException(status_code=504, detail="Pidog timeout")
     media_type = r.headers.get("content-type", "application/json")
     return Response(content=r.content, status_code=r.status_code, media_type=media_type)
+
+
+async def _proxy_stream(request: Request, url: str) -> Response:
+    if request.url.query:
+        url = f"{url}?{request.url.query}"
+
+    client = httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=10.0, read=None, write=30.0)
+    )
+    try:
+        response = await client.send(client.build_request("GET", url), stream=True)
+    except httpx.ConnectError:
+        await client.aclose()
+        raise HTTPException(status_code=503, detail="Pidog unreachable")
+    except httpx.TimeoutException:
+        await client.aclose()
+        raise HTTPException(status_code=504, detail="Pidog timeout")
+
+    if response.status_code >= 400:
+        body = await response.aread()
+        media_type = response.headers.get("content-type", "application/json")
+        await response.aclose()
+        await client.aclose()
+        return Response(
+            content=body, status_code=response.status_code, media_type=media_type
+        )
+
+    async def stream_bytes():
+        try:
+            async for chunk in response.aiter_bytes():
+                yield chunk
+        finally:
+            await response.aclose()
+            await client.aclose()
+
+    return StreamingResponse(
+        stream_bytes(),
+        status_code=response.status_code,
+        media_type=response.headers.get("content-type", "application/octet-stream"),
+    )
 
 
 # Catch-all proxy for /api/{model}/{id}/*
@@ -152,7 +196,9 @@ async def proxy_robot_api(request: Request, robot_model: str, robot_id: str, pat
     url = f"{settings.pidog_base_url}/api/{robot_model}/{robot_id}"
     if suffix:
         url = f"{url}/{suffix}"
-    content = await request.body() if request.method in ("POST", "PUT", "PATCH") else None
+    content = (
+        await request.body() if request.method in ("POST", "PUT", "PATCH") else None
+    )
     return await _proxy_request(request, request.method, url, content)
 
 
@@ -168,6 +214,8 @@ async def proxy_camera(request: Request, robot_id: str, path: str):
     url = f"{settings.pidog_base_url}/api/camera/{robot_id}"
     if suffix:
         url = f"{url}/{suffix}"
+    if request.method == "GET" and suffix.endswith("video_feed"):
+        return await _proxy_stream(request, url)
     content = await request.body() if request.method == "POST" else None
     return await _proxy_request(request, request.method, url, content)
 
