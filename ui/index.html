@@ -237,6 +237,8 @@
       });
 
       updateConnectionStatus();
+      setInterval(updateConnectionStatus, 5000);
+      window.addEventListener('focus', updateConnectionStatus);
     </script>
   </body>
 </html>
