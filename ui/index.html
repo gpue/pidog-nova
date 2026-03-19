@@ -195,6 +195,7 @@
       const path = window.location.pathname.replace(/\/api\/ui\/?$|\/ui\/?$/, '').replace(/\/+$/, '') || '';
       const apiPrefix = path + (path.endsWith('/api') ? '' : '/api');
       let cameraPreviewInterval = null;
+      let cameraPreviewInFlight = false;
 
       async function fetchConfig() {
         try {
@@ -216,6 +217,7 @@
           clearInterval(cameraPreviewInterval);
           cameraPreviewInterval = null;
         }
+        cameraPreviewInFlight = false;
       }
 
       function updateCameraPreview(cfg) {
@@ -232,20 +234,39 @@
 
         const robotId = cfg.robot_id || 'pidog';
         const snapshotBaseUrl = `${apiPrefix}/camera/${robotId}/main/snapshot`;
-        img.onerror = () => {
-          msg.classList.remove('hidden');
-          msg.textContent = 'Camera preview unavailable right now.';
-        };
-        img.onload = () => {
-          msg.classList.add('hidden');
-          img.classList.remove('hidden');
-        };
-        const refreshFrame = () => {
-          img.src = `${snapshotBaseUrl}?ts=${Date.now()}`;
-        };
         if (!cameraPreviewInterval) {
           msg.classList.remove('hidden');
           msg.textContent = 'Loading camera preview...';
+          const refreshFrame = async () => {
+            if (cameraPreviewInFlight) return;
+            cameraPreviewInFlight = true;
+            try {
+              const r = await fetch(`${snapshotBaseUrl}?ts=${Date.now()}`, { cache: 'no-store' });
+              if (!r.ok) throw new Error(`HTTP ${r.status}`);
+              const blob = await r.blob();
+              const objectUrl = URL.createObjectURL(blob);
+              const prevUrl = img.dataset.objectUrl;
+              img.onload = () => {
+                msg.classList.add('hidden');
+                img.classList.remove('hidden');
+                if (prevUrl) URL.revokeObjectURL(prevUrl);
+              };
+              img.onerror = () => {
+                msg.classList.remove('hidden');
+                msg.textContent = 'Camera preview unavailable right now.';
+                img.classList.add('hidden');
+                URL.revokeObjectURL(objectUrl);
+              };
+              img.dataset.objectUrl = objectUrl;
+              img.src = objectUrl;
+            } catch (err) {
+              msg.classList.remove('hidden');
+              msg.textContent = 'Camera preview unavailable right now.';
+              img.classList.add('hidden');
+            } finally {
+              cameraPreviewInFlight = false;
+            }
+          };
           refreshFrame();
           cameraPreviewInterval = setInterval(refreshFrame, 1000);
         }
