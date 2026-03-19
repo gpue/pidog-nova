@@ -194,6 +194,7 @@
       // Derive API base: /cell/pidog/api (handles /cell/pidog, /cell/pidog/, /cell/pidog/ui, /cell/pidog/api/ui)
       const path = window.location.pathname.replace(/\/api\/ui\/?$|\/ui\/?$/, '').replace(/\/+$/, '') || '';
       const apiPrefix = path + (path.endsWith('/api') ? '' : '/api');
+      let cameraPreviewInterval = null;
 
       async function fetchConfig() {
         try {
@@ -210,10 +211,18 @@
         msgEl.textContent = msg;
       }
 
+      function stopCameraPreview() {
+        if (cameraPreviewInterval) {
+          clearInterval(cameraPreviewInterval);
+          cameraPreviewInterval = null;
+        }
+      }
+
       function updateCameraPreview(cfg) {
         const img = document.getElementById('camera-frame');
         const msg = document.getElementById('camera-status');
         if (!cfg || !cfg.connected) {
+          stopCameraPreview();
           img.classList.add('hidden');
           img.removeAttribute('src');
           msg.classList.remove('hidden');
@@ -222,20 +231,23 @@
         }
 
         const robotId = cfg.robot_id || 'pidog';
-        const streamUrl = `${apiPrefix}/camera/${robotId}/main/video_feed`;
+        const snapshotBaseUrl = `${apiPrefix}/camera/${robotId}/main/snapshot`;
         img.onerror = () => {
-          img.classList.add('hidden');
           msg.classList.remove('hidden');
-          msg.textContent = 'Camera stream unavailable right now.';
+          msg.textContent = 'Camera preview unavailable right now.';
         };
         img.onload = () => {
           msg.classList.add('hidden');
           img.classList.remove('hidden');
         };
-        if (img.src !== streamUrl) {
+        const refreshFrame = () => {
+          img.src = `${snapshotBaseUrl}?ts=${Date.now()}`;
+        };
+        if (!cameraPreviewInterval) {
           msg.classList.remove('hidden');
-          msg.textContent = 'Loading camera stream...';
-          img.src = streamUrl;
+          msg.textContent = 'Loading camera preview...';
+          refreshFrame();
+          cameraPreviewInterval = setInterval(refreshFrame, 1000);
         }
       }
 
