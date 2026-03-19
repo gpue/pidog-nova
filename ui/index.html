@@ -108,6 +108,22 @@
         font-size: 0.8rem; color: var(--text-secondary);
       }
       .saved-info .label { color: var(--text-disabled); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 4px; }
+      .camera-card {
+        margin-top: 20px;
+        background: var(--glass-bg);
+        border: 1px solid var(--glass-border);
+        border-radius: 16px;
+        padding: 20px;
+        backdrop-filter: blur(12px);
+      }
+      .camera-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 10px; }
+      .camera-status { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px; }
+      .camera-frame {
+        width: 100%; aspect-ratio: 4 / 3; object-fit: cover;
+        border-radius: 12px; border: 1px solid var(--border-subtle);
+        background: var(--bg-paper-2);
+      }
+      .camera-frame.hidden, .camera-status.hidden { display: none; }
     </style>
   </head>
   <body>
@@ -165,6 +181,12 @@
           </div>
         </div>
 
+        <div class="camera-card">
+          <h3>Camera Preview</h3>
+          <div class="camera-status" id="camera-status">Connect to Pidog to load the camera stream.</div>
+          <img class="camera-frame hidden" id="camera-frame" alt="Pidog camera stream" />
+        </div>
+
       </div>
     </div>
 
@@ -188,6 +210,35 @@
         msgEl.textContent = msg;
       }
 
+      function updateCameraPreview(cfg) {
+        const img = document.getElementById('camera-frame');
+        const msg = document.getElementById('camera-status');
+        if (!cfg || !cfg.connected) {
+          img.classList.add('hidden');
+          img.removeAttribute('src');
+          msg.classList.remove('hidden');
+          msg.textContent = 'Connect to Pidog to load the camera stream.';
+          return;
+        }
+
+        const robotId = cfg.robot_id || 'pidog';
+        const streamUrl = `${apiPrefix}/camera/${robotId}/main/video_feed`;
+        img.onerror = () => {
+          img.classList.add('hidden');
+          msg.classList.remove('hidden');
+          msg.textContent = 'Camera stream unavailable right now.';
+        };
+        img.onload = () => {
+          msg.classList.add('hidden');
+          img.classList.remove('hidden');
+        };
+        if (img.src !== streamUrl) {
+          msg.classList.remove('hidden');
+          msg.textContent = 'Loading camera stream...';
+          img.src = streamUrl;
+        }
+      }
+
       async function updateConnectionStatus() {
         const cfg = await fetchConfig();
         if (!cfg) {
@@ -209,6 +260,7 @@
         } else {
           setConnStatus('disconnected', 'Not configured');
         }
+        updateCameraPreview(cfg);
       }
 
       document.getElementById('save-btn').addEventListener('click', async () => {
