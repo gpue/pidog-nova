@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -76,8 +77,6 @@ def extract_jpeg_frames(buffer: bytearray) -> list[bytes]:
         if start < 0:
             if len(buffer) > 1024 * 1024:
                 del buffer[:-1024]
-            return frames
-
         end = buffer.find(_JPEG_EOI, start + 2)
         if end < 0:
             if start > 0:
@@ -88,6 +87,11 @@ def extract_jpeg_frames(buffer: bytearray) -> list[bytes]:
         frames.append(bytes(buffer[start:end]))
         del buffer[:end]
         search_from = 0
+
+
+def with_cache_buster(url: str) -> str:
+    separator = "&" if "?" in url else "?"
+    return f"{url}{separator}ts={time.time_ns()}"
 
 
 class RequestScheduler:
@@ -327,7 +331,7 @@ class CameraStreamHub:
             if client is None:
                 return
             try:
-                response = await client.get(snapshot_url)
+                response = await client.get(with_cache_buster(snapshot_url))
                 response.raise_for_status()
                 async with self._lock:
                     if self._source_url != snapshot_url:
