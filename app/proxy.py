@@ -212,10 +212,12 @@ class CameraStreamHub:
         connect_timeout: float = 10.0,
         reconnect_delay: float = 1.0,
         first_frame_timeout: float = 3.0,
+        poll_interval_s: float = 0.2,
     ) -> None:
         self._connect_timeout = connect_timeout
         self._reconnect_delay = reconnect_delay
         self._first_frame_timeout = first_frame_timeout
+        self._poll_interval_s = max(0.05, poll_interval_s)
         self._client: httpx.AsyncClient | None = None
         self._task: asyncio.Task[None] | None = None
         self._lock = asyncio.Lock()
@@ -246,8 +248,8 @@ class CameraStreamHub:
             await self._client.aclose()
             self._client = None
 
-    async def get_snapshot(self, stream_url: str) -> bytes | None:
-        await self._ensure_stream(stream_url)
+    async def get_snapshot(self, snapshot_url: str) -> bytes | None:
+        await self._ensure_stream(snapshot_url)
         if self._latest_frame is not None:
             return self._latest_frame
         try:
@@ -259,9 +261,9 @@ class CameraStreamHub:
         return self._latest_frame
 
     async def stream_response(
-        self, request: Request, stream_url: str
+        self, request: Request, snapshot_url: str
     ) -> StreamingResponse:
-        queue = await self._subscribe(stream_url)
+        queue = await self._subscribe(snapshot_url)
 
         async def stream_bytes():
             try:
@@ -287,8 +289,8 @@ class CameraStreamHub:
             media_type="multipart/x-mixed-replace; boundary=frame",
         )
 
-    async def _subscribe(self, stream_url: str) -> asyncio.Queue[bytes]:
-        await self._ensure_stream(stream_url)
+    async def _subscribe(self, snapshot_url: str) -> asyncio.Queue[bytes]:
+        await self._ensure_stream(snapshot_url)
         queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=1)
         async with self._lock:
             self._subscribers.add(queue)
@@ -301,54 +303,52 @@ class CameraStreamHub:
         async with self._lock:
             self._subscribers.discard(queue)
 
-    async def _ensure_stream(self, stream_url: str) -> None:
+    async def _ensure_stream(self, snapshot_url: str) -> None:
         await self.start()
         async with self._lock:
             if (
-                self._source_url == stream_url
+                self._source_url == snapshot_url
                 and self._task is not None
                 and not self._task.done()
             ):
                 return
             if self._task is not None:
                 self._task.cancel()
-            self._source_url = stream_url
+            self._source_url = snapshot_url
             self._latest_frame = None
             self._latest_frame_event = asyncio.Event()
             self._task = asyncio.create_task(
-                self._run_stream(stream_url), name="pidog-camera-hub"
+                self._run_stream(snapshot_url), name="pidog-camera-hub"
             )
 
-    async def _run_stream(self, stream_url: str) -> None:
+    async def _run_stream(self, snapshot_url: str) -> None:
         while True:
             client = self._client
             if client is None:
                 return
             try:
-                async with client.stream("GET", stream_url) as response:
-                    response.raise_for_status()
-                    buffer = bytearray()
-                    async for chunk in response.aiter_bytes():
-                        async with self._lock:
-                            if self._source_url != stream_url:
-                                return
-                        buffer.extend(chunk)
-                        for frame in extract_jpeg_frames(buffer):
-                            await self._publish_frame(frame)
+                response = await client.get(snapshot_url)
+                response.raise_for_status()
+                async with self._lock:
+                    if self._source_url != snapshot_url:
+                        return
+                if response.content:
+                    await self._publish_frame(response.content)
+                await asyncio.sleep(self._poll_interval_s)
             except asyncio.CancelledError:
                 raise
             except httpx.ConnectError:
-                logger.warning("Pidog camera stream unavailable: %s", stream_url)
+                logger.warning("Pidog camera snapshot unavailable: %s", snapshot_url)
             except httpx.TimeoutException:
-                logger.warning("Pidog camera stream timed out: %s", stream_url)
+                logger.warning("Pidog camera snapshot timed out: %s", snapshot_url)
             except httpx.HTTPStatusError as exc:
                 logger.warning(
-                    "Pidog camera stream returned %s for %s",
+                    "Pidog camera snapshot returned %s for %s",
                     exc.response.status_code,
-                    stream_url,
+                    snapshot_url,
                 )
             except Exception:
-                logger.exception("Pidog camera stream failed: %s", stream_url)
+                logger.exception("Pidog camera snapshot failed: %s", snapshot_url)
 
             await asyncio.sleep(self._reconnect_delay)
 

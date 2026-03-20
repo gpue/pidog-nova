@@ -14,6 +14,9 @@ class Settings:
         self.pidog_port = int(os.getenv("PIDOG_PORT", "8000"))
         self.proxy_max_concurrency = int(os.getenv("PIDOG_PROXY_MAX_CONCURRENCY", "2"))
         self.proxy_queue_size = int(os.getenv("PIDOG_PROXY_QUEUE_SIZE", "64"))
+        self.camera_poll_interval_s = float(
+            os.getenv("PIDOG_CAMERA_POLL_INTERVAL_S", "0.2")
+        )
         self._load_config()
 
     def _load_config(self) -> None:

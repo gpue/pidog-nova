@@ -53,7 +53,9 @@ request_scheduler = RequestScheduler(
     max_concurrency=settings.proxy_max_concurrency,
     max_queue_size=settings.proxy_queue_size,
 )
-camera_stream_hub = CameraStreamHub()
+camera_stream_hub = CameraStreamHub(
+    poll_interval_s=settings.camera_poll_interval_s,
+)
 
 
 @asynccontextmanager
@@ -174,10 +176,12 @@ async def _proxy_request(
 async def _proxy_stream(request: Request, url: str) -> Response:
     if request.url.query:
         url = f"{url}?{request.url.query}"
-    snapshot = await camera_stream_hub.get_snapshot(url)
+
+    snapshot_url = url.removesuffix("video_feed") + "snapshot"
+    snapshot = await camera_stream_hub.get_snapshot(snapshot_url)
     if snapshot is None:
         raise HTTPException(status_code=504, detail="Pidog video feed unavailable")
-    return await camera_stream_hub.stream_response(request, url)
+    return await camera_stream_hub.stream_response(request, snapshot_url)
 
 
 # Catch-all proxy for /api/{model}/{id}/*
@@ -213,8 +217,7 @@ async def proxy_camera(request: Request, robot_id: str, path: str):
     if request.method == "GET" and suffix.endswith("video_feed"):
         return await _proxy_stream(request, url)
     if request.method == "GET" and suffix.endswith("snapshot"):
-        stream_url = url.removesuffix("snapshot") + "video_feed"
-        snapshot = await camera_stream_hub.get_snapshot(stream_url)
+        snapshot = await camera_stream_hub.get_snapshot(url)
         if snapshot is not None:
             return Response(content=snapshot, media_type="image/jpeg")
     content = await request.body() if request.method == "POST" else None

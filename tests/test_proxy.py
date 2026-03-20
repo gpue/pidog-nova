@@ -64,11 +64,11 @@ async def test_camera_stream_hub_fans_out_latest_frame() -> None:
 
     hub._run_stream = fake_run_stream  # type: ignore[method-assign]
 
-    snapshot = await hub.get_snapshot("http://example.com/video_feed")
+    snapshot = await hub.get_snapshot("http://example.com/snapshot")
     assert snapshot in frames
 
-    queue_one = await hub._subscribe("http://example.com/video_feed")
-    queue_two = await hub._subscribe("http://example.com/video_feed")
+    queue_one = await hub._subscribe("http://example.com/snapshot")
+    queue_two = await hub._subscribe("http://example.com/snapshot")
 
     frame_one = await asyncio.wait_for(queue_one.get(), timeout=1)
     frame_two = await asyncio.wait_for(queue_two.get(), timeout=1)
