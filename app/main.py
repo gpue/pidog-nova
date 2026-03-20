@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
@@ -12,10 +11,17 @@ from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from app.config import settings
+from app.proxy import (
+    CameraStreamHub,
+    ProxyQueueFullError,
+    RequestScheduler,
+    UpstreamTimeoutError,
+    UpstreamUnavailableError,
+    proxy_result_to_response,
+)
 from app.registry import RegistryPublisher
 
 logger = logging.getLogger(__name__)
@@ -43,13 +49,22 @@ registry = RegistryPublisher(
     robot_id=settings.robot_id,
     health_check=_pidog_healthy,
 )
+request_scheduler = RequestScheduler(
+    max_concurrency=settings.proxy_max_concurrency,
+    max_queue_size=settings.proxy_queue_size,
+)
+camera_stream_hub = CameraStreamHub()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await request_scheduler.start()
+    await camera_stream_hub.start()
     await registry.start()
     yield
     await registry.stop()
+    await camera_stream_hub.stop()
+    await request_scheduler.stop()
 
 
 app = FastAPI(
@@ -139,66 +154,30 @@ async def _proxy_request(
 ) -> Response:
     if request.url.query:
         url = f"{url}?{request.url.query}"
+
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            if method == "GET":
-                r = await client.get(url)
-            elif method == "POST":
-                r = await client.post(
-                    url, content=content or b"", headers=dict(request.headers)
-                )
-            elif method == "PUT":
-                r = await client.put(
-                    url, content=content or b"", headers=dict(request.headers)
-                )
-            else:
-                raise HTTPException(status_code=405, detail="Method not allowed")
-    except httpx.ConnectError:
+        result = await request_scheduler.submit(
+            method,
+            url,
+            headers=request.headers,
+            content=content,
+        )
+    except ProxyQueueFullError:
+        raise HTTPException(status_code=429, detail="Pidog request queue is full")
+    except UpstreamUnavailableError:
         raise HTTPException(status_code=503, detail="Pidog unreachable")
-    except httpx.TimeoutException:
+    except UpstreamTimeoutError:
         raise HTTPException(status_code=504, detail="Pidog timeout")
-    media_type = r.headers.get("content-type", "application/json")
-    return Response(content=r.content, status_code=r.status_code, media_type=media_type)
+    return proxy_result_to_response(result)
 
 
 async def _proxy_stream(request: Request, url: str) -> Response:
     if request.url.query:
         url = f"{url}?{request.url.query}"
-
-    client = httpx.AsyncClient(
-        timeout=httpx.Timeout(connect=10.0, read=None, write=30.0)
-    )
-    try:
-        response = await client.send(client.build_request("GET", url), stream=True)
-    except httpx.ConnectError:
-        await client.aclose()
-        raise HTTPException(status_code=503, detail="Pidog unreachable")
-    except httpx.TimeoutException:
-        await client.aclose()
-        raise HTTPException(status_code=504, detail="Pidog timeout")
-
-    if response.status_code >= 400:
-        body = await response.aread()
-        media_type = response.headers.get("content-type", "application/json")
-        await response.aclose()
-        await client.aclose()
-        return Response(
-            content=body, status_code=response.status_code, media_type=media_type
-        )
-
-    async def stream_bytes():
-        try:
-            async for chunk in response.aiter_bytes():
-                yield chunk
-        finally:
-            await response.aclose()
-            await client.aclose()
-
-    return StreamingResponse(
-        stream_bytes(),
-        status_code=response.status_code,
-        media_type=response.headers.get("content-type", "application/octet-stream"),
-    )
+    snapshot = await camera_stream_hub.get_snapshot(url)
+    if snapshot is None:
+        raise HTTPException(status_code=504, detail="Pidog video feed unavailable")
+    return await camera_stream_hub.stream_response(request, url)
 
 
 # Catch-all proxy for /api/{model}/{id}/*
@@ -233,6 +212,11 @@ async def proxy_camera(request: Request, robot_id: str, path: str):
         url = f"{url}/{suffix}"
     if request.method == "GET" and suffix.endswith("video_feed"):
         return await _proxy_stream(request, url)
+    if request.method == "GET" and suffix.endswith("snapshot"):
+        stream_url = url.removesuffix("snapshot") + "video_feed"
+        snapshot = await camera_stream_hub.get_snapshot(stream_url)
+        if snapshot is not None:
+            return Response(content=snapshot, media_type="image/jpeg")
     content = await request.body() if request.method == "POST" else None
     return await _proxy_request(request, request.method, url, content)
 

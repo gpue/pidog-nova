@@ -12,6 +12,8 @@ class Settings:
         self.config_file = os.getenv("CONFIG_FILE", "/data/config.json")
         self.pidog_ip = os.getenv("PIDOG_IP", "")
         self.pidog_port = int(os.getenv("PIDOG_PORT", "8000"))
+        self.proxy_max_concurrency = int(os.getenv("PIDOG_PROXY_MAX_CONCURRENCY", "2"))
+        self.proxy_queue_size = int(os.getenv("PIDOG_PROXY_QUEUE_SIZE", "64"))
         self._load_config()
 
     def _load_config(self) -> None:
@@ -34,7 +36,7 @@ class Settings:
             return
         path = Path(self.config_file)
         path.parent.mkdir(parents=True, exist_ok=True)
-        data = {"pidog_ip": pidog_ip.strip()}
+        data: dict[str, str | int] = {"pidog_ip": pidog_ip.strip()}
         if pidog_port is not None:
             data["pidog_port"] = pidog_port
         path.write_text(json.dumps(data, indent=2))
