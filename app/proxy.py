@@ -7,6 +7,7 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 from fastapi import HTTPException, Request
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 _JPEG_SOI = b"\xff\xd8"
 _JPEG_EOI = b"\xff\xd9"
+_CACHE_BUSTING_QUERY_KEYS = {"ts", "_", "cacheBust", "cache_bust"}
 _HOP_BY_HOP_HEADERS = {
     "connection",
     "content-length",
@@ -92,6 +94,20 @@ def extract_jpeg_frames(buffer: bytearray) -> list[bytes]:
 def with_cache_buster(url: str) -> str:
     separator = "&" if "?" in url else "?"
     return f"{url}{separator}ts={time.time_ns()}"
+
+
+def normalize_stream_source_url(url: str) -> str:
+    parts = urlsplit(url)
+    if not parts.query and not parts.fragment:
+        return url
+
+    filtered_query = [
+        (key, value)
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        if key not in _CACHE_BUSTING_QUERY_KEYS
+    ]
+    normalized_query = urlencode(sorted(filtered_query), doseq=True)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, normalized_query, ""))
 
 
 class RequestScheduler:
@@ -300,7 +316,7 @@ class CameraStreamHub:
             self._subscribers.add(queue)
             latest = self._latest_frame
         if latest is not None:
-            queue.put_nowait(latest)
+            self._queue_latest_frame(queue, latest)
         return queue
 
     async def _unsubscribe(self, queue: asyncio.Queue[bytes]) -> None:
@@ -309,20 +325,21 @@ class CameraStreamHub:
 
     async def _ensure_stream(self, snapshot_url: str) -> None:
         await self.start()
+        normalized_snapshot_url = normalize_stream_source_url(snapshot_url)
         async with self._lock:
             if (
-                self._source_url == snapshot_url
+                self._source_url == normalized_snapshot_url
                 and self._task is not None
                 and not self._task.done()
             ):
                 return
             if self._task is not None:
                 self._task.cancel()
-            self._source_url = snapshot_url
+            self._source_url = normalized_snapshot_url
             self._latest_frame = None
             self._latest_frame_event = asyncio.Event()
             self._task = asyncio.create_task(
-                self._run_stream(snapshot_url), name="pidog-camera-hub"
+                self._run_stream(normalized_snapshot_url), name="pidog-camera-hub"
             )
 
     async def _run_stream(self, snapshot_url: str) -> None:
@@ -363,11 +380,15 @@ class CameraStreamHub:
             subscribers = list(self._subscribers)
 
         for queue in subscribers:
-            if queue.full():
-                with contextlib.suppress(asyncio.QueueEmpty):
-                    queue.get_nowait()
-            with contextlib.suppress(asyncio.QueueFull):
-                queue.put_nowait(frame)
+            self._queue_latest_frame(queue, frame)
+
+    @staticmethod
+    def _queue_latest_frame(queue: asyncio.Queue[bytes], frame: bytes) -> None:
+        if queue.full():
+            with contextlib.suppress(asyncio.QueueEmpty):
+                queue.get_nowait()
+        with contextlib.suppress(asyncio.QueueFull):
+            queue.put_nowait(frame)
 
 
 def proxy_result_to_response(result: ProxyResult) -> Response:

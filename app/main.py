@@ -218,24 +218,6 @@ async def _proxy_stream(request: Request, url: str) -> Response:
     return await camera_stream_hub.stream_response(request, snapshot_url)
 
 
-# Catch-all proxy for /api/{model}/{id}/*
-@app.api_route(
-    f"{API_PREFIX}/{{robot_model}}/{{robot_id}}/{{path:path}}",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
-)
-async def proxy_robot_api(request: Request, robot_model: str, robot_id: str, path: str):
-    if not settings.is_configured:
-        raise HTTPException(status_code=503, detail="Pidog IP not configured")
-    suffix = f"{path}".rstrip("/") if path else ""
-    url = f"{settings.pidog_base_url}/api/{robot_model}/{robot_id}"
-    if suffix:
-        url = f"{url}/{suffix}"
-    content = (
-        await request.body() if request.method in ("POST", "PUT", "PATCH") else None
-    )
-    return await _proxy_request(request, request.method, url, content)
-
-
 # Camera proxy
 @app.api_route(
     f"{API_PREFIX}/camera/{{robot_id}}/{{path:path}}",
@@ -255,6 +237,24 @@ async def proxy_camera(request: Request, robot_id: str, path: str):
         if snapshot is not None:
             return Response(content=snapshot, media_type="image/jpeg")
     content = await request.body() if request.method == "POST" else None
+    return await _proxy_request(request, request.method, url, content)
+
+
+# Catch-all proxy for /api/{model}/{id}/*
+@app.api_route(
+    f"{API_PREFIX}/{{robot_model}}/{{robot_id}}/{{path:path}}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+)
+async def proxy_robot_api(request: Request, robot_model: str, robot_id: str, path: str):
+    if not settings.is_configured:
+        raise HTTPException(status_code=503, detail="Pidog IP not configured")
+    suffix = f"{path}".rstrip("/") if path else ""
+    url = f"{settings.pidog_base_url}/api/{robot_model}/{robot_id}"
+    if suffix:
+        url = f"{url}/{suffix}"
+    content = (
+        await request.body() if request.method in ("POST", "PUT", "PATCH") else None
+    )
     return await _proxy_request(request, request.method, url, content)
 
 
