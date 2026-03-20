@@ -101,16 +101,52 @@ def robot_health(robot_model: str, robot_id: str):
     }
 
 
-@app.get("/")
-def root():
+# --- Discovery endpoints ---------------------------------------------------
+
+
+@app.get(f"{API_PREFIX}/robots")
+def list_robots():
+    """List connected robots managed by this connector."""
+    connected = _pidog_healthy()
     return {
-        "service": "pidog-nova",
-        "version": "1.0.0",
-        "mode": "gateway",
-        "robot_model": settings.robot_model,
-        "robot_id": settings.robot_id,
-        "ui": f"{API_PREFIX}/ui" if API_PREFIX else "/ui",
-        "health": "/health",
+        "robots": [
+            {
+                "robot_id": settings.robot_id,
+                "robot_type": settings.robot_model,
+                "mode": "gateway",
+                "status": "connected" if connected else "disconnected",
+            }
+        ]
+    }
+
+
+@app.get(f"{API_PREFIX}/cameras")
+def list_cameras():
+    """List available camera feeds from the Pidog robot."""
+    return {
+        "cameras": [
+            {
+                "robot_id": settings.robot_id,
+                "robot_type": settings.robot_model,
+                "feed": "main",
+                "stream_url": f"{API_PREFIX}/camera/{settings.robot_id}/main/video_feed",
+                "snapshot_url": f"{API_PREFIX}/camera/{settings.robot_id}/main/snapshot",
+            }
+        ]
+    }
+
+
+@app.get(f"{API_PREFIX}/capabilities")
+def list_capabilities():
+    """List capabilities supported by this connector."""
+    return {
+        "capabilities": [
+            "walk_control",
+            "cameras",
+            "graphnav",
+            "graph_activate",
+            "graph_navigate",
+        ]
     }
 
 
