@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Callable
 import json
 import os
+import socket
 from typing import Any
 
 from nats.aio.client import Client as NATS
@@ -14,9 +15,10 @@ HEARTBEAT_INTERVAL_S = float(os.getenv("REGISTRY_HEARTBEAT_S", "15"))
 REGISTRY_KV_TTL_S = int(os.getenv("REGISTRY_KV_TTL_S", "60"))
 NATS_URL = os.getenv("NATS_BROKER") or os.getenv("NATS_URL") or "nats://localhost:4222"
 NATS_SUBJECT_PREFIX = os.getenv("NATS_SUBJECT_PREFIX", "rt.v1").strip(".")
-CONNECTOR_BASE_URL = os.getenv("CONNECTOR_BASE_URL", "http://localhost:8300").rstrip(
-    "/"
-)
+CONNECTOR_BASE_URL = os.getenv(
+    "CONNECTOR_BASE_URL", f"http://{socket.gethostname()}:8000"
+).rstrip("/")
+NOVA_API_GATEWAY = os.getenv("NOVA_API_GATEWAY", "").rstrip("/")
 BASE_PATH = os.getenv("BASE_PATH", "").rstrip("/")
 API_PREFIX = f"{BASE_PATH}/api" if BASE_PATH else "/api"
 
@@ -42,6 +44,22 @@ def _browser_api_prefix_from_base_path(raw: str) -> str | None:
     return f"{base_path}/api"
 
 
+def _join_base_url(base_url: str, base_path: str) -> str:
+    base = (base_url or "").strip().rstrip("/")
+    path = _normalize_base_path(base_path)
+    if not path:
+        return base
+    if base.endswith(path):
+        return base
+    return f"{base}{path}"
+
+
+def _registry_base_url() -> str:
+    if BASE_PATH and NOVA_API_GATEWAY:
+        return _join_base_url(NOVA_API_GATEWAY, BASE_PATH)
+    return _join_base_url(CONNECTOR_BASE_URL, BASE_PATH)
+
+
 async def _ensure_kv_bucket(js: Any, bucket: str, description: str, ttl_s: int) -> Any:
     try:
         return await js.key_value(bucket)
@@ -61,11 +79,11 @@ async def _ensure_kv_bucket(js: Any, bucket: str, description: str, ttl_s: int) 
 
 def _build_robot_payload(robot_model: str, robot_id: str) -> dict[str, Any]:
     subj_base = f"{NATS_SUBJECT_PREFIX}.robot.{robot_model}.{robot_id}"
-    api_prefix = _api_prefix_from_base_path(BASE_PATH)
+    registry_base_url = _registry_base_url()
     payload = {
         "id": robot_id,
         "endpoints": [
-            f"{CONNECTOR_BASE_URL}{api_prefix}/{robot_model}/{robot_id}",
+            f"{registry_base_url}/api/{robot_model}/{robot_id}",
         ],
         "metadata": {
             "kind": "physical",
@@ -93,13 +111,12 @@ def _build_robot_payload(robot_model: str, robot_id: str) -> dict[str, Any]:
 def _build_camera_payload(
     robot_id: str, robot_type: str, feed_name: str, api_prefix: str
 ) -> dict[str, Any]:
+    registry_base_url = _registry_base_url()
     payload = {
         "robot_id": robot_id,
         "robot_type": robot_type,
         "feed": feed_name,
-        "stream_url": (
-            f"{CONNECTOR_BASE_URL}{api_prefix}/camera/{robot_id}/{feed_name}/video_feed"
-        ),
+        "stream_url": f"{registry_base_url}/api/camera/{robot_id}/{feed_name}/video_feed",
         "source": "pidog-nova",
     }
     browser_api_prefix = _browser_api_prefix_from_base_path(BASE_PATH)
