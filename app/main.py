@@ -67,6 +67,11 @@ def health():
     return {"status": "ok"}
 
 
+@app.get(f"{BASE_PATH}/health" if BASE_PATH else "/health")
+def base_path_health():
+    return health()
+
+
 @app.get("/")
 def root():
     return {
