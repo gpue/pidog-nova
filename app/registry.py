@@ -18,7 +18,7 @@ NATS_SUBJECT_PREFIX = os.getenv("NATS_SUBJECT_PREFIX", "rt.v1").strip(".")
 CONNECTOR_BASE_URL = os.getenv(
     "CONNECTOR_BASE_URL", f"http://{socket.gethostname()}:8000"
 ).rstrip("/")
-NOVA_API_GATEWAY = os.getenv("NOVA_API_GATEWAY", "").rstrip("/")
+REGISTRY_BASE_URL = os.getenv("REGISTRY_BASE_URL", "").rstrip("/")
 BASE_PATH = os.getenv("BASE_PATH", "").rstrip("/")
 API_PREFIX = f"{BASE_PATH}/api" if BASE_PATH else "/api"
 
@@ -55,9 +55,8 @@ def _join_base_url(base_url: str, base_path: str) -> str:
 
 
 def _registry_base_url() -> str:
-    if BASE_PATH and NOVA_API_GATEWAY:
-        return _join_base_url(NOVA_API_GATEWAY, BASE_PATH)
-    return _join_base_url(CONNECTOR_BASE_URL, BASE_PATH)
+    base_url = REGISTRY_BASE_URL or CONNECTOR_BASE_URL
+    return _join_base_url(base_url, BASE_PATH)
 
 
 async def _ensure_kv_bucket(js: Any, bucket: str, description: str, ttl_s: int) -> Any:
