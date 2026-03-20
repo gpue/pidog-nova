@@ -7,6 +7,7 @@ import json
 import logging
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -70,6 +71,17 @@ def health():
 @app.get(f"{BASE_PATH}/health" if BASE_PATH else "/health")
 def base_path_health():
     return health()
+
+
+@app.get(f"{API_PREFIX}/{{robot_model}}/{{robot_id}}/health")
+def robot_health(robot_model: str, robot_id: str):
+    connected = _pidog_healthy()
+    return {
+        "status": "healthy" if connected else "degraded",
+        "mode": "gateway",
+        "robot_connected": connected,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @app.get("/")
