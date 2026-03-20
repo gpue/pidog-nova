@@ -178,9 +178,7 @@ async def _proxy_stream(request: Request, url: str) -> Response:
         url = f"{url}?{request.url.query}"
 
     snapshot_url = url.removesuffix("video_feed") + "snapshot"
-    snapshot = await camera_stream_hub.get_snapshot(snapshot_url)
-    if snapshot is None:
-        raise HTTPException(status_code=504, detail="Pidog video feed unavailable")
+    await camera_stream_hub.get_snapshot(snapshot_url)
     return await camera_stream_hub.stream_response(request, snapshot_url)
 
 
