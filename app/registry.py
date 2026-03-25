@@ -11,8 +11,10 @@ from nats.aio.client import Client as NATS
 
 REGISTRY_BUCKET = os.getenv("REGISTRY_ROBOTS_BUCKET", "registry_robots")
 CAMERA_BUCKET = os.getenv("REGISTRY_CAMERAS_BUCKET", "registry_cameras")
+MODEL_BUCKET = os.getenv("REGISTRY_ROBOT_MODELS_BUCKET", "registry_robot_models")
 HEARTBEAT_INTERVAL_S = float(os.getenv("REGISTRY_HEARTBEAT_S", "15"))
 REGISTRY_KV_TTL_S = int(os.getenv("REGISTRY_KV_TTL_S", "60"))
+MODEL_KV_TTL_S = int(os.getenv("REGISTRY_MODEL_KV_TTL_S", "300"))
 NATS_URL = os.getenv("NATS_BROKER") or os.getenv("NATS_URL") or "nats://localhost:4222"
 NATS_SUBJECT_PREFIX = os.getenv("NATS_SUBJECT_PREFIX", "rt.v1").strip(".")
 CONNECTOR_BASE_URL = os.getenv(
@@ -139,6 +141,7 @@ class RegistryPublisher:
         self._nc: NATS | None = None
         self._robot_kv: Any = None
         self._camera_kv: Any = None
+        self._model_kv: Any = None
         self._heartbeat_task: asyncio.Task | None = None
         self._registered = False
 
@@ -156,11 +159,15 @@ class RegistryPublisher:
             self._camera_kv = await _ensure_kv_bucket(
                 js, CAMERA_BUCKET, "Camera feed registry entries", REGISTRY_KV_TTL_S
             )
+            self._model_kv = await _ensure_kv_bucket(
+                js, MODEL_BUCKET, "Robot model registry entries", MODEL_KV_TTL_S
+            )
             return True
         except Exception:
             self._nc = None
             self._robot_kv = None
             self._camera_kv = None
+            self._model_kv = None
             return False
 
     async def publish(self) -> bool:
@@ -182,6 +189,27 @@ class RegistryPublisher:
         try:
             await self._robot_kv.delete(self._robot_id)
             self._registered = False
+            return True
+        except Exception:
+            return False
+
+    async def publish_model(self) -> bool:
+        """Publish the robot model to the models KV bucket (independent of health)."""
+        if not await self._connect():
+            return False
+        payload = {
+            "model": self._robot_model,
+            "source": "pidog-nova",
+            "capabilities": [
+                "walk_control",
+                "cameras",
+                "graphnav",
+                "graph_activate",
+                "graph_navigate",
+            ],
+        }
+        try:
+            await self._model_kv.put(self._robot_model, json.dumps(payload).encode())
             return True
         except Exception:
             return False
@@ -213,6 +241,9 @@ class RegistryPublisher:
         while True:
             await asyncio.sleep(HEARTBEAT_INTERVAL_S)
             try:
+                # Always publish the model — independent of robot health
+                await self.publish_model()
+
                 if self._health_check is not None:
                     healthy = await asyncio.to_thread(self._health_check)
                 else:
@@ -229,6 +260,9 @@ class RegistryPublisher:
                 pass
 
     async def start(self) -> None:
+        # Always publish the model — even when the physical robot is unreachable
+        await self.publish_model()
+
         if self._health_check is not None:
             healthy = await asyncio.to_thread(self._health_check)
         else:
@@ -256,3 +290,4 @@ class RegistryPublisher:
         self._nc = None
         self._robot_kv = None
         self._camera_kv = None
+        self._model_kv = None
