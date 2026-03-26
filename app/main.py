@@ -173,6 +173,13 @@ async def update_config(request: Request):
     return get_config()
 
 
+@app.post(f"{API_PREFIX}/config/refresh")
+def refresh_config():
+    """Re-pull configuration from the Nova Object Store."""
+    ok = settings.refresh()
+    return {"refreshed": ok, **get_config()}
+
+
 # --- ws/walk/info (gateway implements directly, not proxied) ---
 @app.get(f"{API_PREFIX}/{{robot_model}}/{{robot_id}}/ws/walk/info")
 def ws_walk_info(robot_model: str, robot_id: str):
