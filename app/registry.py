@@ -209,7 +209,8 @@ class RegistryPublisher:
             ],
         }
         try:
-            await self._model_kv.put(self._robot_model, json.dumps(payload).encode())
+            key = f"{self._robot_model}.pidog-nova"
+            await self._model_kv.put(key, json.dumps(payload).encode())
             return True
         except Exception:
             return False
