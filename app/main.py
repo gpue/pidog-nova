@@ -120,6 +120,28 @@ def list_robots():
     }
 
 
+@app.delete(
+    f"{API_PREFIX}/{{robot_model}}/{{robot_id}}/registry",
+    summary="Permanently remove a robot from the registry",
+    description="Decommission a robot by permanently deleting its entry from the "
+    "NATS KV registry.  Normal shutdown only marks robots offline; use this "
+    "endpoint to fully remove a robot that will not return.",
+)
+async def delete_robot_registry(robot_model: str, robot_id: str):
+    if robot_id != settings.robot_id:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Robot '{robot_id}' is not managed by this connector",
+        )
+    ok = await registry.unpublish()
+    if not ok:
+        raise HTTPException(
+            status_code=503,
+            detail="Failed to remove robot from registry (NATS unavailable)",
+        )
+    return {"status": "deleted", "robot_id": robot_id}
+
+
 @app.get(f"{API_PREFIX}/cameras")
 def list_cameras():
     """List available camera feeds from the Pidog robot."""

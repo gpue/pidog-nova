@@ -1,7 +1,15 @@
-"""NATS KV registry for pidog-nova gateway."""
+"""NATS KV registry for pidog-nova gateway.
+
+Robot entries are **persistent** (no TTL) and carry an ``online`` flag so
+consumers can distinguish live vs offline robots.  Entries are marked
+offline on graceful shutdown and must be explicitly deleted via the
+REST API to be fully removed.
+"""
 
 import asyncio
 from collections.abc import Callable
+from dataclasses import replace
+from datetime import datetime, timezone
 import json
 import os
 import socket
@@ -13,7 +21,8 @@ REGISTRY_BUCKET = os.getenv("REGISTRY_ROBOTS_BUCKET", "registry_robots")
 CAMERA_BUCKET = os.getenv("REGISTRY_CAMERAS_BUCKET", "registry_cameras")
 MODEL_BUCKET = os.getenv("REGISTRY_ROBOT_MODELS_BUCKET", "registry_robot_models")
 HEARTBEAT_INTERVAL_S = float(os.getenv("REGISTRY_HEARTBEAT_S", "15"))
-REGISTRY_KV_TTL_S = int(os.getenv("REGISTRY_KV_TTL_S", "60"))
+REGISTRY_KV_TTL_S = int(os.getenv("REGISTRY_KV_TTL_S", "0"))
+CAMERA_KV_TTL_S = int(os.getenv("CAMERA_KV_TTL_S", "60"))
 MODEL_KV_TTL_S = int(os.getenv("REGISTRY_MODEL_KV_TTL_S", "300"))
 NATS_URL = os.getenv("NATS_BROKER") or os.getenv("NATS_URL") or "nats://localhost:4222"
 NATS_SUBJECT_PREFIX = os.getenv("NATS_SUBJECT_PREFIX", "rt.v1").strip(".")
@@ -61,9 +70,15 @@ def _registry_base_url() -> str:
     return _join_base_url(base_url, BASE_PATH)
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 async def _ensure_kv_bucket(js: Any, bucket: str, description: str, ttl_s: int) -> Any:
+    """Create the KV bucket or reconcile TTL on an existing one."""
     try:
-        return await js.key_value(bucket)
+        kv = await js.key_value(bucket)
     except Exception:
         from nats.js.api import KeyValueConfig
 
@@ -77,12 +92,39 @@ async def _ensure_kv_bucket(js: Any, bucket: str, description: str, ttl_s: int) 
         )
         return await js.key_value(bucket)
 
+    status = await kv.status()
+    current_ttl = status.ttl
+    desired_ttl = float(ttl_s)
+    if current_ttl != desired_ttl:
+        dup_window = status.stream_info.config.duplicate_window
+        if desired_ttl > 0 and dup_window > desired_ttl:
+            dup_window = desired_ttl
+        config = replace(
+            status.stream_info.config,
+            description=description,
+            max_age=desired_ttl,
+            duplicate_window=dup_window if desired_ttl > 0 else dup_window,
+        )
+        await js.update_stream(config=config)
+        logger.info(
+            "Updated KV bucket %s TTL from %s to %ss",
+            bucket,
+            current_ttl,
+            ttl_s,
+        )
+        kv = await js.key_value(bucket)
+    return kv
 
-def _build_robot_payload(robot_model: str, robot_id: str) -> dict[str, Any]:
+
+def _build_robot_payload(
+    robot_model: str, robot_id: str, *, online: bool = True
+) -> dict[str, Any]:
     subj_base = f"{NATS_SUBJECT_PREFIX}.robot.{robot_model}.{robot_id}"
     registry_base_url = _registry_base_url()
     payload = {
         "id": robot_id,
+        "online": online,
+        "last_seen": datetime.now(timezone.utc).isoformat(),
         "endpoints": [
             f"{registry_base_url}/api/{robot_model}/{robot_id}",
         ],
@@ -154,10 +196,13 @@ class RegistryPublisher:
             self._nc = nc
             js = nc.jetstream()
             self._robot_kv = await _ensure_kv_bucket(
-                js, REGISTRY_BUCKET, "Robot registry entries", REGISTRY_KV_TTL_S
+                js,
+                REGISTRY_BUCKET,
+                "Robot registry entries (persistent, no TTL)",
+                REGISTRY_KV_TTL_S,
             )
             self._camera_kv = await _ensure_kv_bucket(
-                js, CAMERA_BUCKET, "Camera feed registry entries", REGISTRY_KV_TTL_S
+                js, CAMERA_BUCKET, "Camera feed registry entries", CAMERA_KV_TTL_S
             )
             self._model_kv = await _ensure_kv_bucket(
                 js, MODEL_BUCKET, "Robot model registry entries", MODEL_KV_TTL_S
@@ -170,11 +215,11 @@ class RegistryPublisher:
             self._model_kv = None
             return False
 
-    async def publish(self) -> bool:
+    async def publish(self, *, online: bool = True) -> bool:
         if not await self._connect():
             self._registered = False
             return False
-        payload = _build_robot_payload(self._robot_model, self._robot_id)
+        payload = _build_robot_payload(self._robot_model, self._robot_id, online=online)
         try:
             await self._robot_kv.put(self._robot_id, json.dumps(payload).encode())
             self._registered = True
@@ -183,7 +228,12 @@ class RegistryPublisher:
             self._registered = False
             return False
 
+    async def mark_offline(self) -> bool:
+        """Mark this robot as offline in the KV bucket (entry persists)."""
+        return await self.publish(online=False)
+
     async def unpublish(self) -> bool:
+        """Permanently remove this robot from the KV bucket (decommission)."""
         if not await self._connect():
             return False
         try:
@@ -250,10 +300,10 @@ class RegistryPublisher:
                 else:
                     healthy = True
                 if healthy:
-                    await self.publish()
+                    await self.publish(online=True)
                     await self.publish_cameras()
                 elif self._registered:
-                    await self.unpublish()
+                    await self.mark_offline()
                     await self.unpublish_cameras()
             except asyncio.CancelledError:
                 raise
@@ -269,11 +319,12 @@ class RegistryPublisher:
         else:
             healthy = True
         if healthy:
-            await self.publish()
+            await self.publish(online=True)
             await self.publish_cameras()
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
     async def stop(self) -> None:
+        """Stop heartbeat, mark robot offline, and disconnect."""
         if self._heartbeat_task:
             self._heartbeat_task.cancel()
             try:
@@ -282,7 +333,7 @@ class RegistryPublisher:
                 pass
             self._heartbeat_task = None
         await self.unpublish_cameras()
-        await self.unpublish()
+        await self.mark_offline()
         if self._nc and self._nc.is_connected:
             try:
                 await self._nc.drain()
