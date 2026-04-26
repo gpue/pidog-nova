@@ -23,6 +23,7 @@ from app.proxy import (
     proxy_result_to_response,
 )
 from app.registry import RegistryPublisher
+from app.vda5050_bridge import PiDogVDA5050Bridge
 
 logger = logging.getLogger(__name__)
 
@@ -56,14 +57,35 @@ request_scheduler = RequestScheduler(
 camera_stream_hub = CameraStreamHub(
     poll_interval_s=settings.camera_poll_interval_s,
 )
+vda5050_bridge: PiDogVDA5050Bridge | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global vda5050_bridge
     await request_scheduler.start()
     await camera_stream_hub.start()
     await registry.start()
+    # Start VDA5050 bridge after registry (needs NATS client)
+    if registry._nc is not None and registry._nc.is_connected:
+        try:
+            vda5050_bridge = PiDogVDA5050Bridge(
+                nc=registry._nc,
+                robot_model=settings.robot_model,
+                robot_id=settings.robot_id,
+                pidog_base_url_fn=lambda: settings.pidog_base_url,
+                nats_prefix=NATS_SUBJECT_PREFIX,
+            )
+            await vda5050_bridge.start()
+        except Exception:
+            logger.warning("VDA5050 bridge failed to start", exc_info=True)
+            vda5050_bridge = None
     yield
+    if vda5050_bridge is not None:
+        try:
+            await vda5050_bridge.stop()
+        except Exception:
+            pass
     await registry.stop()
     await camera_stream_hub.stop()
     await request_scheduler.stop()
