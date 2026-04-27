@@ -22,10 +22,12 @@ from nova_vda5050 import (
     build_factsheet,
     action_def,
 )
+from nova_vda5050.errors import make_error
 from nova_vda5050.connection_helpers import robot_online, robot_offline
 from nova_vda5050.schemas import (
     AgvPosition,
     BatteryState,
+    Error,
     SafetyState,
     Velocity,
 )
@@ -156,6 +158,7 @@ class PiDogVDA5050Bridge:
         model = self._robot_model
         rid = self._robot_id
         manufacturer = self._manufacturer
+        errors: list[Error] = []
 
         # Poll battery
         battery_charge = 0.0
@@ -168,8 +171,23 @@ class PiDogVDA5050Bridge:
                 battery_charge = float(data.get("percentage", 0))
                 battery_voltage = float(data.get("voltage", 0))
                 charging = bool(data.get("charging", False))
-        except Exception:
-            pass
+            else:
+                errors.append(
+                    make_error(
+                        "batteryReadFailed",
+                        "WARNING",
+                        description=f"Battery poll returned HTTP {r.status_code}",
+                    )
+                )
+        except Exception as exc:
+            errors.append(
+                make_error(
+                    "communicationLost",
+                    "FATAL",
+                    description=f"Failed to poll PiDog battery: {exc}",
+                    hint="Check PiDog device is powered on and reachable",
+                )
+            )
 
         # Poll debug state for robot status
         driving = False
@@ -185,8 +203,23 @@ class PiDogVDA5050Bridge:
                     "backward",
                     "trot",
                 )
-        except Exception:
-            pass
+            else:
+                errors.append(
+                    make_error(
+                        "communicationLost",
+                        "WARNING",
+                        description=f"State poll returned HTTP {r.status_code}",
+                    )
+                )
+        except Exception as exc:
+            errors.append(
+                make_error(
+                    "communicationLost",
+                    "FATAL",
+                    description=f"Failed to poll PiDog state: {exc}",
+                    hint="Check PiDog device is powered on and reachable",
+                )
+            )
 
         now = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
 
@@ -215,7 +248,7 @@ class PiDogVDA5050Bridge:
             nodeStates=[],
             edgeStates=[],
             actionStates=[],
-            errors=[],
+            errors=errors,
             informations=[],
         )
         state_subject = self._mapper.nova_state_to_vda5050_nats(model, rid)
