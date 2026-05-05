@@ -13,7 +13,8 @@ _NOVA_API_GATEWAY = os.getenv(
     "http://api-gateway.wandelbots.svc.cluster.local:8080",
 )
 _NOVA_CELL_ID = os.getenv("NOVA_CELL_ID", "cell")
-_STORE_KEY = "config/pidog-nova"
+_ROBOT_ID = os.getenv("ROBOT_ID", "pidog")
+_STORE_KEY = f"config/pidog-nova/{_ROBOT_ID}"
 _TIMEOUT = httpx.Timeout(60.0, connect=10.0)
 
 
