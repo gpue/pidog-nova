@@ -250,26 +250,12 @@ class RegistryPublisher:
             return False
 
     async def publish_model(self) -> bool:
-        """Publish the robot model to the models KV bucket (independent of health)."""
-        if not await self._connect():
-            return False
-        payload = {
-            "model": self._robot_model,
-            "source": "pidog-nova",
-            "capabilities": [
-                "walk_control",
-                "cameras",
-                "graphnav",
-                "graph_activate",
-                "graph_navigate",
-            ],
-        }
-        try:
-            key = f"{self._robot_model}.pidog-nova"
-            await self._model_kv.put(key, json.dumps(payload).encode())
-            return True
-        except Exception:
-            return False
+        """DEPRECATED: registry_robot_models is superseded by robot_config.
+
+        This method is now a no-op. Capabilities are published via
+        publish_config() to the robot_config KV bucket instead.
+        """
+        return True
 
     async def publish_config(self) -> bool:
         """Publish static robot config to the robot_config KV bucket (permanent)."""
