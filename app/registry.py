@@ -20,10 +20,12 @@ from nats.aio.client import Client as NATS
 REGISTRY_BUCKET = os.getenv("REGISTRY_ROBOTS_BUCKET", "registry_robots")
 CAMERA_BUCKET = os.getenv("REGISTRY_CAMERAS_BUCKET", "registry_cameras")
 MODEL_BUCKET = os.getenv("REGISTRY_ROBOT_MODELS_BUCKET", "registry_robot_models")
+CONFIG_BUCKET = os.getenv("REGISTRY_ROBOT_CONFIG_BUCKET", "robot_config")
 HEARTBEAT_INTERVAL_S = float(os.getenv("REGISTRY_HEARTBEAT_S", "15"))
 REGISTRY_KV_TTL_S = int(os.getenv("REGISTRY_KV_TTL_S", "0"))
 CAMERA_KV_TTL_S = int(os.getenv("CAMERA_KV_TTL_S", "60"))
 MODEL_KV_TTL_S = int(os.getenv("REGISTRY_MODEL_KV_TTL_S", "300"))
+CONFIG_KV_TTL_S = int(os.getenv("REGISTRY_CONFIG_KV_TTL_S", "0"))  # permanent
 NATS_URL = os.getenv("NATS_BROKER") or os.getenv("NATS_URL") or "nats://localhost:4222"
 NATS_SUBJECT_PREFIX = os.getenv("NATS_SUBJECT_PREFIX", "rt.v1").strip(".")
 CONNECTOR_BASE_URL = os.getenv(
@@ -184,6 +186,7 @@ class RegistryPublisher:
         self._robot_kv: Any = None
         self._camera_kv: Any = None
         self._model_kv: Any = None
+        self._config_kv: Any = None
         self._heartbeat_task: asyncio.Task | None = None
         self._registered = False
 
@@ -206,6 +209,9 @@ class RegistryPublisher:
             )
             self._model_kv = await _ensure_kv_bucket(
                 js, MODEL_BUCKET, "Robot model registry entries", MODEL_KV_TTL_S
+            )
+            self._config_kv = await _ensure_kv_bucket(
+                js, CONFIG_BUCKET, "Robot config entries (permanent)", CONFIG_KV_TTL_S
             )
             return True
         except Exception:
@@ -265,6 +271,52 @@ class RegistryPublisher:
         except Exception:
             return False
 
+    async def publish_config(self) -> bool:
+        """Publish static robot config to the robot_config KV bucket (permanent)."""
+        if not await self._connect():
+            return False
+        if self._config_kv is None:
+            return False
+        subj_base = f"{NATS_SUBJECT_PREFIX}.robot.{self._robot_model}.{self._robot_id}"
+        registry_base_url = _registry_base_url()
+        browser_api_prefix = _browser_api_prefix_from_base_path(BASE_PATH)
+        payload = {
+            "robot_id": self._robot_id,
+            "robot_model": self._robot_model,
+            "source": "pidog-nova",
+            "kind": "physical",
+            "endpoints": [
+                f"{registry_base_url}/api/{self._robot_model}/{self._robot_id}",
+            ],
+            "browser_endpoint": (
+                f"{browser_api_prefix}/{self._robot_model}/{self._robot_id}"
+                if browser_api_prefix
+                else None
+            ),
+            "nats_subjects": {
+                "command": f"{subj_base}.control.cmd",
+                "event": f"{subj_base}.control.evt",
+                "telemetry": f"{subj_base}.telemetry.state",
+            },
+            "capabilities": [
+                "walk_control",
+                "cameras",
+                "graphnav",
+                "graph_activate",
+                "graph_navigate",
+            ],
+            "available_actions": [],
+            "available_modes": [],
+        }
+        try:
+            data = json.dumps(payload).encode()
+            await self._config_kv.put(self._robot_id, data)
+            logger.info("Published robot config for '%s'", self._robot_id)
+            return True
+        except Exception as exc:
+            logger.warning("Failed to publish robot config for '%s': %s", self._robot_id, exc)
+            return False
+
     async def publish_cameras(self) -> bool:
         if not await self._connect():
             return False
@@ -311,8 +363,9 @@ class RegistryPublisher:
                 pass
 
     async def start(self) -> None:
-        # Always publish the model — even when the physical robot is unreachable
+        # Always publish the model and config — even when the physical robot is unreachable
         await self.publish_model()
+        await self.publish_config()
 
         if self._health_check is not None:
             healthy = await asyncio.to_thread(self._health_check)
