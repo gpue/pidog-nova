@@ -186,7 +186,6 @@ class RegistryPublisher:
         self._robot_kv: Any = None
         self._camera_kv: Any = None
         self._model_kv: Any = None
-        self._config_kv: Any = None
         self._heartbeat_task: asyncio.Task | None = None
         self._registered = False
 
@@ -209,9 +208,6 @@ class RegistryPublisher:
             )
             self._model_kv = await _ensure_kv_bucket(
                 js, MODEL_BUCKET, "Robot model registry entries", MODEL_KV_TTL_S
-            )
-            self._config_kv = await _ensure_kv_bucket(
-                js, CONFIG_BUCKET, "Robot config entries (permanent)", CONFIG_KV_TTL_S
             )
             return True
         except Exception:
@@ -258,50 +254,9 @@ class RegistryPublisher:
         return True
 
     async def publish_config(self) -> bool:
-        """Publish static robot config to the robot_config KV bucket (permanent)."""
-        if not await self._connect():
-            return False
-        if self._config_kv is None:
-            return False
-        subj_base = f"{NATS_SUBJECT_PREFIX}.robot.{self._robot_model}.{self._robot_id}"
-        registry_base_url = _registry_base_url()
-        browser_api_prefix = _browser_api_prefix_from_base_path(BASE_PATH)
-        payload = {
-            "robot_id": self._robot_id,
-            "robot_model": self._robot_model,
-            "source": "pidog-nova",
-            "kind": "physical",
-            "endpoints": [
-                f"{registry_base_url}/api/{self._robot_model}/{self._robot_id}",
-            ],
-            "browser_endpoint": (
-                f"{browser_api_prefix}/{self._robot_model}/{self._robot_id}"
-                if browser_api_prefix
-                else None
-            ),
-            "nats_subjects": {
-                "command": f"{subj_base}.control.cmd",
-                "event": f"{subj_base}.control.evt",
-                "telemetry": f"{subj_base}.telemetry.state",
-            },
-            "capabilities": [
-                "walk_control",
-                "cameras",
-                "graphnav",
-                "graph_activate",
-                "graph_navigate",
-            ],
-            "available_actions": [],
-            "available_modes": [],
-        }
-        try:
-            data = json.dumps(payload).encode()
-            await self._config_kv.put(self._robot_id, data)
-            logger.info("Published robot config for '%s'", self._robot_id)
-            return True
-        except Exception as exc:
-            logger.warning("Failed to publish robot config for '%s': %s", self._robot_id, exc)
-            return False
+        """DEPRECATED: robot config is now served from K8s ConfigMaps."""
+        logger.debug("publish_config() skipped — superseded by K8s ConfigMaps")
+        return True
 
     async def publish_cameras(self) -> bool:
         if not await self._connect():
