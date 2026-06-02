@@ -140,6 +140,7 @@ def _build_robot_payload(
             "telemetry_subject": f"{subj_base}.telemetry.state",
             "capabilities": [
                 "walk_control",
+                "recover",
                 "cameras",
                 "graphnav",
                 "graph_activate",

@@ -291,6 +291,51 @@ async def proxy_camera(request: Request, robot_id: str, path: str):
     return await _proxy_request(request, request.method, url, content)
 
 
+# --- Recovery endpoint ---
+@app.post(f"{API_PREFIX}/{{robot_model}}/{{robot_id}}/recover")
+async def recover_robot(request: Request, robot_model: str, robot_id: str):
+    """Recover PiDog by commanding 'stand' action.
+
+    PiDog cannot self-right from a physical fall, so this is best-effort.
+    Returns 'partial' status since true recovery may require physical intervention.
+    """
+    if not settings.is_configured:
+        raise HTTPException(status_code=503, detail="Pidog IP not configured")
+
+    url = f"{settings.pidog_base_url}/api/{robot_model}/{robot_id}/action/stand"
+    try:
+        await request_scheduler.submit("POST", url)
+        return {
+            "status": "partial",
+            "steps_completed": ["stand"],
+            "steps_failed": ["self_right"],
+            "remaining_faults": 0,
+            "message": "PiDog cannot self-right physically; legs re-posed via 'stand' action",
+        }
+    except (UpstreamUnavailableError, UpstreamTimeoutError) as exc:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "error",
+                "steps_completed": [],
+                "steps_failed": ["stand"],
+                "remaining_faults": 0,
+                "message": str(exc),
+            },
+        )
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "steps_completed": [],
+                "steps_failed": ["stand"],
+                "remaining_faults": 0,
+                "message": str(exc),
+            },
+        )
+
+
 # Catch-all proxy for /api/{model}/{id}/*
 @app.api_route(
     f"{API_PREFIX}/{{robot_model}}/{{robot_id}}/{{path:path}}",
