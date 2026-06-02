@@ -224,8 +224,12 @@ def refresh_config():
     return {"refreshed": ok, **get_config()}
 
 
-# --- ws/walk/info (gateway implements directly, not proxied) ---
-@app.get(f"{API_PREFIX}/{{robot_model}}/{{robot_id}}/ws/walk/info")
+# --- ws/move/info (canonical) and ws/walk/info (legacy alias) ---
+@app.get(f"{API_PREFIX}/{{robot_model}}/{{robot_id}}/ws/move/info")
+@app.get(
+    f"{API_PREFIX}/{{robot_model}}/{{robot_id}}/ws/walk/info",
+    include_in_schema=False,
+)
 def ws_walk_info(robot_model: str, robot_id: str):
     subj_base = f"{NATS_SUBJECT_PREFIX}.robot.{robot_model}.{robot_id}"
     return {
