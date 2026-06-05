@@ -154,6 +154,22 @@ class Settings(BaseSettings):
             v = f"/{v}"
         return v.rstrip("/")
 
+    @property
+    def project_root(self) -> Path:
+        # src/pidog_nova/settings.py  →  src/pidog_nova  →  src  →  <project>
+        return Path(__file__).resolve().parent.parent.parent
+
+    @property
+    def static_directory(self) -> Path:
+        return self.project_root / "static"
+
+    @property
+    def ui_directory(self) -> Path:
+        # Self-contained HTML operator page (no build step).  Served at /ui
+        # by main.py via StaticFiles(html=True) so visiting /ui/ renders
+        # index.html directly.
+        return self.project_root / "ui"
+
 
 @lru_cache
 def get_settings() -> Settings:

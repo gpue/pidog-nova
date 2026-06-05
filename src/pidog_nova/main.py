@@ -22,6 +22,7 @@ fully owned by :func:`mobile_integration_sdk.create_connector_app`.
 
 from __future__ import annotations
 
+from fastapi.staticfiles import StaticFiles
 from mobile_integration_sdk import (
     ControlRuntime,
     NatsConnection,
@@ -151,6 +152,24 @@ app = create_connector_app(
     on_shutdown=_on_shutdown,
     title="Pidog Nova Gateway",
 )
+
+# ─── Static UI mounts ─────────────────────────────────────────────────────
+# Both directories are optional — the SDK skips the mount when the dir
+# doesn't exist, so dev environments without checked-out static assets
+# still boot cleanly.  The UI is a single-file operator page styled per
+# the Nova design language.
+if pidog_settings.ui_directory.exists():
+    app.mount(
+        "/ui",
+        StaticFiles(directory=pidog_settings.ui_directory, html=True),
+        name="ui",
+    )
+if pidog_settings.static_directory.exists():
+    app.mount(
+        "/static",
+        StaticFiles(directory=pidog_settings.static_directory),
+        name="static",
+    )
 
 
 if __name__ == "__main__":
