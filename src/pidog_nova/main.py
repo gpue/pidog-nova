@@ -1,21 +1,23 @@
 """pidog-nova entry point — wires the SDK app to :class:`PidogDriver`.
 
-Phase 2a brings the full realtime stack online:
+Phase 2a–3 stack:
 
 * :class:`mobile_integration_sdk.NatsConnection` — shared NATS client.
 * :class:`mobile_integration_sdk.ControlRuntime` — subscribes to
   ``…control.cmd`` and dispatches to driver hooks
   (``stop`` → motion-stop via upstream ``POST /stop``; ``move`` returns
   ``not_implemented`` since PiDog has no continuous-velocity surface).
-* :class:`mobile_integration_sdk.TelemetryPublisher` — sample/publish loop;
-  the Phase 2a sampler returns ``None`` (Phase 2b will poll the upstream
-  ``/debug/state`` and ``/battery`` endpoints).
+* :class:`mobile_integration_sdk.TelemetryPublisher` — sample/publish loop
+  driven by :meth:`PidogDriver.snapshot_state`.
 * :class:`mobile_integration_sdk.RegistryPublisher` — per-robot KV
   publisher with TTL + heartbeat in ``registry_robots``.
+* :class:`pidog_nova.vda5050_adapter.Vda5050Adapter` — VDA5050 bridge
+  reusing the SDK NATS client and the driver's sampler so VDA5050 sees
+  the same upstream snapshot as the SDK telemetry pump (no duplicate
+  polling of the PiDog daemon).
 
 The HTTP surface (REST routes, capability gates, OpenAPI bundled spec) is
 fully owned by :func:`mobile_integration_sdk.create_connector_app`.
-VDA5050 bridging is intentionally absent here — that's Phase 3.
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ from pidog_nova._utils import logger
 from pidog_nova.driver import PidogDriver
 from pidog_nova.settings import settings as pidog_settings
 from pidog_nova.settings import to_connector_settings
+from pidog_nova.vda5050_adapter import Vda5050Adapter
 
 # ─── build SDK components (lifespan starts/stops them) ────────────────────
 
@@ -72,11 +75,19 @@ _registry = RegistryPublisher(
     robots_bucket=_connector_settings.robots_bucket,
 )
 
+# VDA5050 adapter is constructed eagerly; its ``start()`` is invoked
+# from ``_on_startup`` once NATS is connected so it can grab the live
+# primary client.  The adapter shares the SDK's NATS client and the
+# driver's existing sampler — no duplicate upstream polling.
+_vda5050: Vda5050Adapter | None = None
+
 
 # ─── startup / shutdown hooks ─────────────────────────────────────────────
 
 
 async def _on_startup() -> None:
+    global _vda5050
+
     logger.info(
         "pidog-nova v%s starting (model=%s, id=%s, upstream=%s)",
         pidog_settings.api_version,
@@ -101,9 +112,25 @@ async def _on_startup() -> None:
     _control_runtime._nc = _nats.primary  # type: ignore[attr-defined]
     _telemetry._nc = _nats.primary  # type: ignore[attr-defined]
 
+    # VDA5050 adapter needs the live primary client too; build + start
+    # only after NATS is up.  Wrapped so a VDA5050 failure can't take
+    # down the connector — VDA5050 is an auxiliary protocol, not the
+    # primary control surface.
+    try:
+        _vda5050 = Vda5050Adapter(nc=_nats.primary, driver=_driver)
+        await _vda5050.start()
+    except Exception:  # noqa: BLE001
+        logger.exception("VDA5050 adapter failed to start; continuing without it")
+        _vda5050 = None
+
 
 async def _on_shutdown() -> None:
     logger.info("pidog-nova shutting down...")
+    if _vda5050 is not None:
+        try:
+            await _vda5050.stop()
+        except Exception:
+            logger.exception("vda5050 adapter shutdown raised")
     try:
         await _driver.shutdown()
     except Exception:
