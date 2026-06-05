@@ -24,13 +24,20 @@ import contextlib
 import logging
 from typing import Any
 
+# nova_vda5050 is pulled transitively via mobile-integration-sdk[vda5050].
+# We still import ``action_def`` directly because the SDK only re-exports
+# the message types most drivers need (Bridge, MobileRobotActionDef,
+# OrderMessage) — the action-def builder is an authoring helper that
+# lives outside that minimal surface.
+from mobile_integration_sdk.vda5050 import (
+    MobileRobotActionDef,
+    OrderMessage,
+    VDA5050Bridge,
+)
 from nova_vda5050 import action_def
-from nova_vda5050.schemas.factsheet import MobileRobotActionDef
-from nova_vda5050.schemas.order import OrderMessage
 
 from pidog_nova.driver import PidogDriver
 from pidog_nova.settings import settings
-from pidog_nova.vda5050_bridge import VDA5050Bridge
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +151,10 @@ class Vda5050Adapter:
     Parameters
     ----------
     nc:
-        Live NATS client (``NatsConnection.primary``) — never the wrapper.
+        NATS handle — either the SDK's :class:`NatsConnection` wrapper or
+        the raw :class:`nats.aio.Client`. The wrapper delegates
+        ``publish``/``subscribe``/``is_connected`` to its primary client
+        (SDK v0.3+), so both forms work identically.
     driver:
         The PiDog driver; used both as the state-sample source and the
         target for translated VDA5050 commands.

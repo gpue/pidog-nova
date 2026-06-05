@@ -22,7 +22,6 @@ fully owned by :func:`mobile_integration_sdk.create_connector_app`.
 
 from __future__ import annotations
 
-from fastapi.staticfiles import StaticFiles
 from mobile_integration_sdk import (
     ControlRuntime,
     NatsConnection,
@@ -51,8 +50,9 @@ _subjects = Subjects(
     robot_id=_connector_settings.robot_id,
 )
 
-# ControlRuntime needs a live nats client at start(); we rebind to the
-# connected primary in _on_startup below (matches unitree-nova pattern).
+# SDK v0.3 (opt #1): NatsConnection now delegates publish/subscribe/etc.
+# to its primary client, so ControlRuntime + TelemetryPublisher can take
+# the wrapper directly — no post-connect rebinding required.
 _control_runtime = ControlRuntime(_nats, _subjects, _driver)
 
 _telemetry = TelemetryPublisher(_nats, _subjects)
@@ -98,27 +98,15 @@ async def _on_startup() -> None:
     )
     await _driver.start()
 
-    # Connect NATS now so we can rebind ControlRuntime and TelemetryPublisher
-    # against the live primary client. The SDK lifespan will call connect()
-    # again — it's a no-op when already connected.
-    #
-    # NOTE: TelemetryPublisher's ``_nc.publish(...)`` call silently fails
-    # (logged at DEBUG only) when ``_nc`` is the NatsConnection wrapper
-    # rather than the underlying primary client, because the wrapper has
-    # no ``publish`` method. Sim-connector passes ``_nats.primary``
-    # directly; unitree-nova currently has the same latent bug (filed for
-    # cross-cutting cleanup). Until the SDK provides a uniform API, we
-    # rebind here.
+    # Connect NATS now so the VDA5050 adapter can subscribe / publish from
+    # its own start(). The SDK lifespan will call connect() again later —
+    # it's a no-op when already connected.
     await _nats.connect()
-    _control_runtime._nc = _nats.primary  # type: ignore[attr-defined]
-    _telemetry._nc = _nats.primary  # type: ignore[attr-defined]
 
-    # VDA5050 adapter needs the live primary client too; build + start
-    # only after NATS is up.  Wrapped so a VDA5050 failure can't take
-    # down the connector — VDA5050 is an auxiliary protocol, not the
-    # primary control surface.
+    # VDA5050 adapter is auxiliary — a failure here must not take down the
+    # connector, so we trap and continue without it.
     try:
-        _vda5050 = Vda5050Adapter(nc=_nats.primary, driver=_driver)
+        _vda5050 = Vda5050Adapter(nc=_nats, driver=_driver)
         await _vda5050.start()
     except Exception:  # noqa: BLE001
         logger.exception("VDA5050 adapter failed to start; continuing without it")
@@ -151,25 +139,12 @@ app = create_connector_app(
     on_startup=_on_startup,
     on_shutdown=_on_shutdown,
     title="Pidog Nova Gateway",
+    # SDK v0.3 (opt #5): hand the SDK both static directories so it can
+    # mount /ui and /static itself, skipping silently when a dir doesn't
+    # exist. The pre-v0.3 manual app.mount(...) block is gone.
+    ui_dir=pidog_settings.ui_directory,
+    static_dir=pidog_settings.static_directory,
 )
-
-# ─── Static UI mounts ─────────────────────────────────────────────────────
-# Both directories are optional — the SDK skips the mount when the dir
-# doesn't exist, so dev environments without checked-out static assets
-# still boot cleanly.  The UI is a single-file operator page styled per
-# the Nova design language.
-if pidog_settings.ui_directory.exists():
-    app.mount(
-        "/ui",
-        StaticFiles(directory=pidog_settings.ui_directory, html=True),
-        name="ui",
-    )
-if pidog_settings.static_directory.exists():
-    app.mount(
-        "/static",
-        StaticFiles(directory=pidog_settings.static_directory),
-        name="static",
-    )
 
 
 if __name__ == "__main__":

@@ -14,8 +14,10 @@ requires-python = ">=3.11"
 
 
 dependencies = [
-    # Mobile Integration SDK — provides canonical REST/NATS/registry surface
-    "mobile-integration-sdk>=0.2.2,<0.3",
+    # Mobile Integration SDK — provides canonical REST/NATS/registry surface.
+    # The [vda5050] extra pulls in nova-vda5050 transitively for the
+    # VDA5050 bridge (mobile_integration_sdk.vda5050).
+    "mobile-integration-sdk[vda5050]>=0.3.0,<0.4",
     # FastAPI Core
     "fastapi>=0.115,<1",
     "uvicorn[standard]>=0.32,<1",
@@ -27,8 +29,6 @@ dependencies = [
     "pydantic-settings>=2.5,<3",
     # Async HTTP Client (upstream proxy + Nova object store + camera snapshots)
     "httpx>=0.27,<1",
-    # VDA5050 bridge (Phase 3)
-    "nova-vda5050>=0.1.0",
 ]
 
 [project.optional-dependencies]
@@ -85,4 +85,4 @@ ignore_missing_imports = true
 
 [tool.uv.sources]
 nova-vda5050 = { git = "https://github.com/wandelbotsgmbh/nova-vda5050.git", branch = "main" }
-mobile-integration-sdk = { git = "https://github.com/wandelbotsgmbh/mobile-integration-sdk.git", tag = "v0.2.2" }
+mobile-integration-sdk = { git = "https://github.com/wandelbotsgmbh/mobile-integration-sdk.git", tag = "v0.3.0" }

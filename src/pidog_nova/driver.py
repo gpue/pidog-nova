@@ -22,6 +22,7 @@ import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
+from fastapi import Request
 from mobile_integration_sdk.driver.exceptions import (
     CapabilityNotSupported,
     DriverError,
@@ -359,19 +360,24 @@ class PidogDriver:
         feed: str,
         quality: int | None = None,
         fps: float | None = None,
+        *,
+        request: Request | None = None,
     ):
         if feed != _CAMERA_FEED:
             raise ResourceNotFound(f"camera feed '{feed}' not available")
         if not settings.is_configured:
             raise CapabilityNotSupported("Pidog IP not configured")
         snapshot_url = self._client.snapshot_url(robot_id, feed)
-        # The SDK's camera router does not (yet) thread the FastAPI Request
-        # through to the driver, so we hand the hub a no-op stand-in. Result:
-        # the stream stays alive until the per-frame 30s timeout fires; this
-        # matches the legacy behaviour and can be tightened once the SDK
-        # passes Request through (planned for a follow-up SDK release).
-        request = _DummyRequest()
-        return await self._camera_hub.stream_response(request, snapshot_url)
+        # The SDK v0.3 camera router introspects this method's signature
+        # and threads the live FastAPI Request through as ``request=``,
+        # so the camera hub can call ``request.is_disconnected()`` per
+        # frame and tear the stream down promptly when the client goes
+        # away. Direct callers (tests, scripts) omit ``request`` and we
+        # fall back to a no-op stand-in that never reports a disconnect
+        # — the per-frame 30 s timeout caps the stream lifetime in that
+        # case.
+        req: Any = request if request is not None else _NullRequest()
+        return await self._camera_hub.stream_response(req, snapshot_url)
 
     async def camera_snapshot(
         self, robot_id: str, feed: str, quality: int | None = None
@@ -389,9 +395,11 @@ class PidogDriver:
     # ── Helpers ──────────────────────────────────────────────────────
 
 
-class _DummyRequest:
-    """Stand-in FastAPI Request used by ``camera_video_feed`` until the
-    SDK threads the real Request through to the driver.
+class _NullRequest:
+    """No-op stand-in for FastAPI Request, used only when
+    :meth:`PidogDriver.camera_video_feed` is invoked outside an HTTP
+    context (tests, scripts).  Reports the connection as live forever;
+    the camera hub's per-frame 30 s timeout still caps stream lifetime.
     """
 
     async def is_disconnected(self) -> bool:
