@@ -18,6 +18,7 @@ supported by the upstream PiDog server.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
@@ -73,6 +74,12 @@ _PIDOG_ACTIONS: tuple[str, ...] = (
 # The PiDog upstream serves exactly one camera feed (Raspberry Pi camera v2).
 _CAMERA_FEED = "main"
 
+# Upstream state strings that imply the dog is actively driving.  Used to
+# derive the canonical ``driving`` boolean from the raw ``state`` field.
+_DRIVING_STATES: frozenset[str] = frozenset(
+    {"walking", "moving", "forward", "backward", "trot"}
+)
+
 
 class PidogDriver:
     """SDK driver for SunFounder PiDog robots (HTTP-gateway connector)."""
@@ -95,6 +102,12 @@ class PidogDriver:
         # Camera rotations are display-only; persisted in-memory per process
         # (consistent with unitree-nova). Persisting is a Phase 4+ concern.
         self._rotations: dict[str, int] = {}
+        # Cached upstream-liveness flag, updated each telemetry tick by
+        # ``snapshot_state``.  ``main.py`` reads it (synchronously) as the
+        # RegistryPublisher's ``health_check`` so the KV ``online`` flag
+        # reflects the upstream PiDog daemon's reachability, not just
+        # whether the connector itself is up.
+        self._upstream_alive: bool = False
 
     # ── Lifecycle hooks (called from main.py on_startup/on_shutdown) ──
 
@@ -133,17 +146,71 @@ class PidogDriver:
         except UpstreamTimeoutError as exc:
             raise DriverError(str(exc)) from exc
 
-    # ── Telemetry sampler (Phase 2a: minimal; Phase 2b: upstream polls) ──
+    # ── Telemetry sampler ────────────────────────────────────────────
 
-    def snapshot_state(self) -> dict[str, Any] | None:
-        """Return the canonical state snapshot, or ``None`` to skip publish.
+    @property
+    def upstream_alive(self) -> bool:
+        """Last-known reachability of the upstream PiDog daemon.
 
-        Phase 2a wires the SDK's :class:`TelemetryPublisher` but does not yet
-        poll the upstream PiDog server — returning ``None`` keeps the loop
-        cheap and avoids publishing meaningless zeros. Phase 2b replaces
-        this with periodic ``GET /debug/state`` + ``GET /battery`` polls.
+        Updated each :meth:`snapshot_state` tick.  Used as the
+        ``RegistryPublisher.health_check`` so the KV ``online`` flag
+        tracks actual upstream reachability (the connector itself is
+        always up while this process is running).
         """
-        return None
+        return self._upstream_alive
+
+    async def snapshot_state(self) -> dict[str, Any] | None:
+        """Poll the upstream ``/debug/state`` and ``/battery`` endpoints
+        and return a canonical state snapshot.
+
+        Returns ``None`` when the upstream is unconfigured (no IP set) so
+        the SDK ``TelemetryPublisher`` skips publishing on that tick.
+        Returns a dict when at least one of the two upstream polls
+        succeeded; partial dicts with missing battery / state are valid
+        and intentional — the consumer can detect them by the absence
+        of the corresponding fields.
+        """
+        if not settings.is_configured:
+            self._upstream_alive = False
+            return None
+
+        # Fire both polls concurrently; each handles its own errors and
+        # returns ``{}`` on failure (so neither raises).
+        battery_raw, state_raw = await asyncio.gather(
+            self._client.fetch_battery(settings.robot_model, settings.robot_id),
+            self._client.fetch_state(settings.robot_model, settings.robot_id),
+        )
+
+        # Liveness = "either poll returned something" — treat as alive
+        # iff we actually got a non-empty response from the daemon.
+        self._upstream_alive = bool(battery_raw) or bool(state_raw)
+        if not self._upstream_alive:
+            return None
+
+        payload: dict[str, Any] = {
+            "robot_model": settings.robot_model,
+            "robot_id": settings.robot_id,
+            "source": "pidog-nova",
+        }
+
+        # Battery (canonical: 0..1 float, plus raw voltage + charging bool)
+        if battery_raw:
+            pct = battery_raw.get("percentage")
+            if isinstance(pct, (int, float)):
+                payload["battery"] = max(0.0, min(1.0, float(pct) / 100.0))
+            volts = battery_raw.get("voltage")
+            if isinstance(volts, (int, float)):
+                payload["battery_voltage"] = float(volts)
+            payload["charging"] = bool(battery_raw.get("charging", False))
+
+        # Upstream state string → canonical 'state' + derived 'driving'
+        if state_raw:
+            state_str = str(state_raw.get("state", "")).lower()
+            if state_str:
+                payload["state"] = state_str
+                payload["driving"] = state_str in _DRIVING_STATES
+
+        return payload
 
     # ── Actions ──────────────────────────────────────────────────────
 

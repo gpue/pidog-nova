@@ -63,11 +63,11 @@ _registry = RegistryPublisher(
     base_path=_connector_settings.base_path,
     nats_subject_prefix=_connector_settings.nats_subject_prefix,
     capabilities=infer_capabilities(_driver),
-    # Phase 2a: register unconditionally — the connector itself is always
-    # up; whether the upstream PiDog daemon is alive is a separate flag.
-    # Phase 2b will swap this for a cached liveness probe updated by the
-    # telemetry sampler (`/health` poll on the upstream every tick).
-    health_check=lambda: True,
+    # KV ``online`` flag tracks upstream-daemon reachability, not just
+    # whether this connector process is up. The driver's telemetry
+    # sampler refreshes ``_upstream_alive`` every tick (0.5 s by default),
+    # so the registry's 15 s heartbeat always sees a recent value.
+    health_check=lambda: _driver.upstream_alive,
     heartbeat_interval_s=_connector_settings.registry_heartbeat_s,
     robots_bucket=_connector_settings.robots_bucket,
 )
@@ -86,11 +86,20 @@ async def _on_startup() -> None:
     )
     await _driver.start()
 
-    # Connect NATS now so the ControlRuntime can rebind against the live
-    # client. The SDK lifespan will call connect() again — it's a no-op
-    # when already connected.
+    # Connect NATS now so we can rebind ControlRuntime and TelemetryPublisher
+    # against the live primary client. The SDK lifespan will call connect()
+    # again — it's a no-op when already connected.
+    #
+    # NOTE: TelemetryPublisher's ``_nc.publish(...)`` call silently fails
+    # (logged at DEBUG only) when ``_nc`` is the NatsConnection wrapper
+    # rather than the underlying primary client, because the wrapper has
+    # no ``publish`` method. Sim-connector passes ``_nats.primary``
+    # directly; unitree-nova currently has the same latent bug (filed for
+    # cross-cutting cleanup). Until the SDK provides a uniform API, we
+    # rebind here.
     await _nats.connect()
     _control_runtime._nc = _nats.primary  # type: ignore[attr-defined]
+    _telemetry._nc = _nats.primary  # type: ignore[attr-defined]
 
 
 async def _on_shutdown() -> None:
