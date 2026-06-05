@@ -1,0 +1,88 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pidog_nova"]
+
+[project]
+name = "pidog-nova"
+version = "1.0.0"
+description = "Nova-compatible connector for SunFounder PiDog robots (HTTP gateway to controller-control upstream)"
+readme = "README.md"
+requires-python = ">=3.11"
+
+
+dependencies = [
+    # Mobile Integration SDK — provides canonical REST/NATS/registry surface
+    "mobile-integration-sdk>=0.2.2,<0.3",
+    # FastAPI Core
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.32,<1",
+    "python-multipart>=0.0.12",
+    # Messaging
+    "nats-py>=2.10,<3",
+    # Data Validation & Settings
+    "pydantic>=2.9,<3",
+    "pydantic-settings>=2.5,<3",
+    # Async HTTP Client (upstream proxy + Nova object store + camera snapshots)
+    "httpx>=0.27,<1",
+    # VDA5050 bridge (Phase 3)
+    "nova-vda5050>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9",
+    "pytest-asyncio>=0.24,<1",
+    "pytest-cov>=6,<7",
+    "ruff>=0.7,<1",
+    "mypy>=1.13,<2",
+    "schemathesis>=4.0,<5",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3,<9",
+    "pytest-asyncio>=0.24,<1",
+    "pytest-cov>=6,<7",
+    "ruff>=0.7,<1",
+    "mypy>=1.13,<2",
+    "schemathesis>=4.0,<5",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--tb=short",
+    "--color=yes",
+]
+markers = [
+    "asyncio: mark test as async",
+    "integration: mark test as integration test",
+    "unit: mark test as unit test",
+    "slow: mark test as slow running",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.uv.sources]
+nova-vda5050 = { git = "https://github.com/wandelbotsgmbh/nova-vda5050.git", branch = "main" }
+mobile-integration-sdk = { git = "https://github.com/wandelbotsgmbh/mobile-integration-sdk.git", tag = "v0.2.2" }
