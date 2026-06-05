@@ -133,6 +133,18 @@ class PidogDriver:
         except UpstreamTimeoutError as exc:
             raise DriverError(str(exc)) from exc
 
+    # ── Telemetry sampler (Phase 2a: minimal; Phase 2b: upstream polls) ──
+
+    def snapshot_state(self) -> dict[str, Any] | None:
+        """Return the canonical state snapshot, or ``None`` to skip publish.
+
+        Phase 2a wires the SDK's :class:`TelemetryPublisher` but does not yet
+        poll the upstream PiDog server — returning ``None`` keeps the loop
+        cheap and avoids publishing meaningless zeros. Phase 2b replaces
+        this with periodic ``GET /debug/state`` + ``GET /battery`` polls.
+        """
+        return None
+
     # ── Actions ──────────────────────────────────────────────────────
 
     async def list_actions(self) -> ActionListResponse:
