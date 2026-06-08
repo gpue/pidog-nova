@@ -32,13 +32,11 @@ ENV UV_LINK_MODE=copy \
 # Install the locked dependency set into /app/.venv.  We copy
 # pyproject.toml + uv.lock + README.md + src/ first because hatchling
 # needs all four to build the pidog-nova package itself.
+# mobile-integration-sdk and nova-vda5050 are public wandelbotsgmbh repos,
+# so no auth is needed.
 COPY pyproject.toml uv.lock README.md ./
 COPY src/ ./src/
-RUN if [ -n "${GITHUB_TOKEN}" ]; then \
-        git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"; \
-    fi \
- && uv sync --frozen --no-dev \
- && git config --global --unset-all url."https://${GITHUB_TOKEN}@github.com/".insteadOf 2>/dev/null || true
+RUN uv sync --frozen --no-dev
 
 # Operator HTML page (mounted at /ui by main.py via StaticFiles).
 COPY ui/ ./ui/

@@ -43,11 +43,5 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # GITHUB_TOKEN is needed because mobile-integration-sdk is
-          # currently pinned to a private wandelbotsgmbh repo; the
-          # workflow's ephemeral token has read access to sibling
-          # wandelbotsgmbh repos.
-          build-args: |
-            GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
