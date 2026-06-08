@@ -55,7 +55,7 @@ _subjects = Subjects(
 # the wrapper directly — no post-connect rebinding required.
 _control_runtime = ControlRuntime(_nats, _subjects, _driver)
 
-_telemetry = TelemetryPublisher(_nats, _subjects)
+_telemetry = TelemetryPublisher(_nats, _subjects, source=_connector_settings.source)
 _telemetry.add("state", _driver.snapshot_state)
 
 _registry = RegistryPublisher(

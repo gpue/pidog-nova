@@ -84,4 +84,4 @@ ignore_missing_imports = true
 
 [tool.uv.sources]
 nova-vda5050 = { git = "https://github.com/wandelbotsgmbh/nova-vda5050.git", branch = "main" }
-mobile-integration-sdk = { git = "https://github.com/wandelbotsgmbh/mobile-integration-sdk.git", tag = "v0.3.0" }
+mobile-integration-sdk = { git = "https://github.com/wandelbotsgmbh/mobile-integration-sdk.git", tag = "v0.3.2" }

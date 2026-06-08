@@ -738,8 +738,8 @@ wheels = [
 
 [[package]]
 name = "mobile-integration-sdk"
-version = "0.3.0"
-source = { git = "https://github.com/wandelbotsgmbh/mobile-integration-sdk.git?tag=v0.3.0#1279a109c7c73ad678ca6242130e043fe575635b" }
+version = "0.3.2"
+source = { git = "https://github.com/wandelbotsgmbh/mobile-integration-sdk.git?tag=v0.3.2#60aee468ec69b675d41205d81fe5b1ef3583ecf4" }
 dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
@@ -889,7 +889,7 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115,<1" },
     { name = "httpx", specifier = ">=0.27,<1" },
-    { name = "mobile-integration-sdk", extras = ["vda5050"], git = "https://github.com/wandelbotsgmbh/mobile-integration-sdk.git?tag=v0.3.0" },
+    { name = "mobile-integration-sdk", extras = ["vda5050"], git = "https://github.com/wandelbotsgmbh/mobile-integration-sdk.git?tag=v0.3.2" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13,<2" },
     { name = "nats-py", specifier = ">=2.10,<3" },
     { name = "pydantic", specifier = ">=2.9,<3" },

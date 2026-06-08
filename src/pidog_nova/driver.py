@@ -188,11 +188,11 @@ class PidogDriver:
         if not self._upstream_alive:
             return None
 
-        payload: dict[str, Any] = {
-            "robot_model": settings.robot_model,
-            "robot_id": settings.robot_id,
-            "source": "pidog-nova",
-        }
+        # ``robot_model`` / ``robot_id`` / ``source`` are filled by the SDK
+        # ``TelemetryPublisher`` envelope itself (since SDK v0.3.2 the publisher
+        # accepts ``source=`` at construction).  Returning only the actual
+        # robot data here keeps the envelope canonical and avoids duplication.
+        payload: dict[str, Any] = {}
 
         # Battery (canonical: 0..1 float, plus raw voltage + charging bool)
         if battery_raw:
