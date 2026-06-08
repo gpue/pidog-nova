@@ -73,8 +73,10 @@ What lives where:
 - **`src/pidog_nova/camera_hub.py`** – `CameraStreamHub` that multiplexes MJPEG
   snapshots from the upstream camera endpoint.
 - **`src/pidog_nova/vda5050_bridge.py`** + **`vda5050_adapter.py`** – VDA5050
-  protocol layer. Reuses the SDK's NATS connection and the driver's existing
-  sampler (no duplicate upstream polling).
+  protocol layer. Built on the SDK's opt-in `[vda5050]` extra
+  (`from mobile_integration_sdk.vda5050 import VDA5050Bridge, …`), reuses the
+  SDK's NATS connection and the driver's existing sampler (no duplicate
+  upstream polling).
 - **`src/pidog_nova/config_store.py`** – Nova Object Store client for
   persisting the upstream PiDog IP/port across pod restarts. Dual-writes to a
   local JSON file as a dev/offline fallback.
