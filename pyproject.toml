@@ -12,7 +12,6 @@ description = "Nova-compatible connector for SunFounder PiDog robots (HTTP gatew
 readme = "README.md"
 requires-python = ">=3.11"
 
-
 dependencies = [
     # Mobile Integration SDK — provides canonical REST/NATS/registry surface.
     # The [vda5050] extra pulls in nova-vda5050 transitively for the
