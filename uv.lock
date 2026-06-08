@@ -739,7 +739,7 @@ wheels = [
 [[package]]
 name = "mobile-integration-sdk"
 version = "0.3.0"
-source = { git = "https://github.com/wandelbotsgmbh/mobile-integration-sdk.git?tag=v0.3.0#5a295ed7bbf4c24b5cad723e1d285eb1fd547fb6" }
+source = { git = "https://github.com/wandelbotsgmbh/mobile-integration-sdk.git?tag=v0.3.0#1279a109c7c73ad678ca6242130e043fe575635b" }
 dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
